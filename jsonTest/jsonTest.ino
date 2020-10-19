@@ -12,8 +12,6 @@
 // Define the array of leds
 CRGB leds[NUM_LEDS];
 
-long arr[256];
-
 void setup() {
   // Initialize serial port
   Serial.begin(115200);
@@ -23,24 +21,15 @@ void setup() {
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
-  File file2 = SPIFFS.open("/data.json");
 
+  DynamicJsonDocument doc(9000);
 
-  if (!file2) {
+  File file = SPIFFS.open("/data1.json");
+  if (!file) {
     Serial.println("Failed to open file for reading");
-    return;
+    while (1);
   }
-
-  String str = file2.readString();
-  size_t size = file2.size();
-  DynamicJsonDocument doc(7000);
-  Serial.print("size ");
-  Serial.println(size);
-  file2.close();
-  char chars[size];
-  str.toCharArray(chars, str.length() + 1);
-
-  DeserializationError error = deserializeJson(doc, chars);
+  DeserializationError error = deserializeJson(doc, file);
 
   // Test if parsing succeeds.
   if (error) {
@@ -49,31 +38,42 @@ void setup() {
     return;
   }
 
-  const char* picName = doc["name"];
-  Serial.print("Loaded name ");
-  Serial.println(picName);
 
-  
-  for (int i = 0; i < 256; i++) {
-    String temp = doc["cars"][i].as<String>();
-    char c[temp.length() + 1];
-    temp.toCharArray(c, temp.length() + 1);
-    long longVal = strtol(c, NULL, 16);
-    arr[i] = longVal;
+  int imgNum = doc["images"].size();
+  Serial.print(imgNum);
+  Serial.println(" images found");
+  long imgArray[imgNum][256];
+
+  for (int i = 0; i < imgNum; i++) { //iterate through images
+    Serial.print("now reading image: ");
+    String imgName = doc["images"][i]["name"].as<String>();
+    Serial.println(imgName);
+    for (int j = 0; j < 256; j++) { //iterate through image data
+      String temp = doc["images"][i]["data"][j].as<String>();
+      char c[temp.length() + 1];
+      temp.toCharArray(c, temp.length() + 1);
+      long longVal = strtol(c, NULL, 16);
+      imgArray[i][j] = longVal;
+    }
   }
 
   FastLED.addLeds<CHIPSET, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050); // Init of the Fastled library
   FastLED.setBrightness(BRIGHTNESS);
   FastLED.clear(true);
-  
+
+  while (1) {
+    for (int i = 0; i < imgNum; i++) {
+      frame(imgArray[i]);
+      delay(1000);
+    }
+
+  }
+
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  frame(arr);
-  delay(500);
-  FastLED.clear(true);
-  delay(500);
+
 }
 
 void frame(long arr[]) {
