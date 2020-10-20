@@ -21,8 +21,8 @@ void setup() {
     Serial.println(F("An Error has occurred while mounting SPIFFS"));
     return;
   }
-
-  File file = SPIFFS.open(F("/data1.json"));
+  const char* filename = "/data1.json";
+  File file = SPIFFS.open(filename);
   if (!file) {
     Serial.println(F("Failed to open file for reading"));
     while (1);
@@ -30,7 +30,7 @@ void setup() {
 
   DynamicJsonDocument json (50948);
   DeserializationError error = deserializeJson(json, file);
-
+  file.close();
 
   // Test if parsing succeeds.
   if (error) {
