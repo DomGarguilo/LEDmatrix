@@ -18,18 +18,19 @@ void setup() {
   while (!Serial) continue;
 
   if (!SPIFFS.begin(true)) {
-    Serial.println("An Error has occurred while mounting SPIFFS");
+    Serial.println(F("An Error has occurred while mounting SPIFFS"));
     return;
   }
 
-  DynamicJsonDocument doc(9000);
-
-  File file = SPIFFS.open("/data1.json");
+  File file = SPIFFS.open(F("/data1.json"));
   if (!file) {
-    Serial.println("Failed to open file for reading");
+    Serial.println(F("Failed to open file for reading"));
     while (1);
   }
-  DeserializationError error = deserializeJson(doc, file);
+
+  DynamicJsonDocument json (50948);
+  DeserializationError error = deserializeJson(json, file);
+
 
   // Test if parsing succeeds.
   if (error) {
@@ -37,22 +38,20 @@ void setup() {
     Serial.println(error.c_str());
     return;
   }
+  JsonObject doc = json.as<JsonObject>();
 
-
-  int imgNum = doc["images"].size();
+  int imgNum = doc[F("images")].size();
   Serial.print(imgNum);
-  Serial.println(" images found");
+  Serial.println(F(" images found"));
   long imgArray[imgNum][256];
 
   for (int i = 0; i < imgNum; i++) { //iterate through images
-    Serial.print("now reading image: ");
-    String imgName = doc["images"][i]["name"].as<String>();
+    Serial.print(F("now reading image: "));
+    const char* imgName = doc[F("images")][i][F("name")].as<char*>();
     Serial.println(imgName);
     for (int j = 0; j < 256; j++) { //iterate through image data
-      String temp = doc["images"][i]["data"][j].as<String>();
-      char c[temp.length() + 1];
-      temp.toCharArray(c, temp.length() + 1);
-      long longVal = strtol(c, NULL, 16);
+      const char* temp = doc[F("images")][i][F("data")][j].as<char*>();
+      long longVal = strtol(temp, NULL, 16);
       imgArray[i][j] = longVal;
     }
   }
@@ -66,9 +65,7 @@ void setup() {
       frame(imgArray[i]);
       delay(1000);
     }
-
   }
-
 }
 
 void loop() {
