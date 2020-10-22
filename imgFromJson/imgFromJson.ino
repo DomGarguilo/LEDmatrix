@@ -11,6 +11,70 @@
 
 // Define the array of leds
 CRGB leds[NUM_LEDS];
+const char *fileName = "/data.json";
+File myFile;
+//JsonObject doc;
+
+JsonObject getJSonFromFile(DynamicJsonDocument *doc, String fileName, bool forceCleanONJsonError = true ) {
+  // open the file for reading:
+  myFile = SPIFFS.open(fileName);
+  if (myFile) {
+
+    DeserializationError error = deserializeJson(*doc, myFile);
+    if (error) {
+      // if the file didn't open, print an error:
+      Serial.print(F("Error parsing JSON "));
+      Serial.println(error.c_str());
+
+      if (forceCleanONJsonError) {
+        return doc->to<JsonObject>();
+      }
+    }
+
+    // close the file:
+    myFile.close();
+
+    return doc->as<JsonObject>();
+  } else {
+    // if the file didn't open, print an error:
+    Serial.print(F("Error opening (or file not exists) "));
+    Serial.println(fileName);
+
+    Serial.println(F("Empty json created"));
+    return doc->to<JsonObject>();
+  }
+
+}
+
+bool saveJSonToAFile(DynamicJsonDocument *doc, String fileName) {
+  SPIFFS.remove(fileName);
+
+  // open the file. note that only one file can be open at a time,
+  // so you have to close this one before opening another.
+  Serial.println(F("Open file in write mode"));
+  myFile = SPIFFS.open(fileName, FILE_WRITE);
+  if (myFile) {
+    Serial.print(F("fileName --> "));
+    Serial.println(fileName);
+
+    Serial.print(F("Start write..."));
+
+    serializeJson(*doc, myFile);
+
+    Serial.print(F("..."));
+    // close the file:
+    myFile.close();
+    Serial.println(F("done."));
+
+    return true;
+  } else {
+    // if the file didn't open, print an error:
+    Serial.print(F("Error opening "));
+    Serial.println(fileName);
+
+    return false;
+  }
+}
 
 void setup() {
 
@@ -27,23 +91,10 @@ void setup() {
     return;
   }
 
-  File file = SPIFFS.open(F("/data.json"));
-  if (!file) {
-    Serial.println(F("Failed to open file for reading"));
-    while (1);
-  }
-
   DynamicJsonDocument json (50948);
-  DeserializationError error = deserializeJson(json, file);
-  file.close();
+  JsonObject doc;
+  doc = getJSonFromFile(&json, fileName);
 
-  // Test if parsing succeeds.
-  if (error) {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.c_str());
-    return;
-  }
-  JsonObject doc = json.as<JsonObject>();
 
   int imgNum = doc[F("animationList")].size();
   Serial.print(imgNum);
@@ -78,8 +129,9 @@ void setup() {
       }
     }
   }
+
 }
 
 void loop() {
-  // not reached
+
 }
