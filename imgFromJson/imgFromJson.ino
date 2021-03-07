@@ -6,7 +6,7 @@
 #define NUM_LEDS 256
 #define COLOR_ORDER GRB
 #define CHIPSET WS2812B
-#define BRIGHTNESS 2
+#define BRIGHTNESS 35
 #define DATA_PIN 13  // Connected to the data pin of the first LED strip
 
 // Define the array of leds
