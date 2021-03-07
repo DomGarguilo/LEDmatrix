@@ -1,9 +1,20 @@
 #include "FastLED.h"
 
+
+/*
+ * this is an example on a different method of changing the values of each led
+ * 
+ * unfortunately, this method does not account for the alternating direction of the led strip rows
+ * this means every other row will be backwards
+ */
+
+
+
+// setting up constants to use with our LEDs
 #define LED_PIN 13
 #define COLOR_ORDER GRB
 #define CHIPSET WS2812B
-#define BRIGHTNESS 5
+#define BRIGHTNESS 2
 #define NUM_LEDS 256
 
 CRGB leds[NUM_LEDS];
@@ -14,6 +25,7 @@ void setup() {
 
 }
 
+// displays a fishbowl animation
 void loop() {
   fishBowl();
   /*

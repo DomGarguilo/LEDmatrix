@@ -1,6 +1,4 @@
-#include <FastLED.h>
-
-#include "FastLED.h"       // Fastled library to control the LEDs
+#include <FastLED.h> // Fastled library to control the LEDs
 
 
 #define NUM_LEDS 256
@@ -132,6 +130,10 @@ CRGB leds[NUM_LEDS];
   0x333366, 0x333366, 0x333366, 0xffffff, 0xffffff, 0xff0000, 0xff0000, 0xffffff, 0xff0000, 0xff0000, 0xffffff, 0x333366, 0xffffff, 0xffffff, 0x333366, 0x333366,
   0x333366, 0x333366, 0x333366, 0x333366, 0x333366, 0x000000, 0x000000, 0x000000, 0x333366, 0x000000, 0x000000, 0x000000, 0x333366, 0x333366, 0x333366, 0x333366
   };*/
+
+// 2D array to hold an array of arrays of color values
+// this method is inefficient in terms of space because to repeat a frame, we paste another set of the same values
+// newer methods reuse the arrays when possible
 const int row = 6;
 const int col = 256;
 const long imageArr[row][col] = {
@@ -240,6 +242,7 @@ const long imageArr[row][col] = {
   }
 };
 
+// sets up our matrix for use
 void setup() {
   FastLED.addLeds<CHIPSET, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050); // Init of the Fastled library
   FastLED.setBrightness(BRIGHTNESS);
@@ -247,10 +250,13 @@ void setup() {
 
 void loop() {
 
+  // loops through the array of arrays
   for (int i = 0; i < row; i++) {
+    // loops through each value in the sub array and sets each of the individual 256 leds to the color value
     for (int j = 0; j < col; j++) {
       leds[j] = imageArr[i][j];
     }
+    // after all the leds have a color value, .show() updates them then we sleep for the period of time we want each frame to last.
     FastLED.show();
     delay(500);
   }

@@ -21,6 +21,7 @@ void setup() {
     Serial.println(F("An Error has occurred while mounting SPIFFS"));
     return;
   }
+  
   const char* filename = "/data1.json";
   File file = SPIFFS.open(filename);
   if (!file) {
@@ -28,6 +29,9 @@ void setup() {
     while (1);
   }
 
+  // initialize json object
+  // this is one point needing improvement. making this too large fills up RAM
+  // need to pull from spiffs in smaller incriments as to avoid this
   DynamicJsonDocument json (50948);
   DeserializationError error = deserializeJson(json, file);
   file.close();
@@ -38,8 +42,10 @@ void setup() {
     Serial.println(error.c_str());
     return;
   }
-  JsonObject doc = json.as<JsonObject>();
 
+  // cast to JsonObject
+  JsonObject doc = json.as<JsonObject>();
+  // reading from the jsonObject. first feild is the array of total animations
   int imgNum = doc[F("images")].size();
   Serial.print(imgNum);
   Serial.println(F(" images found"));

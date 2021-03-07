@@ -10,10 +10,12 @@
 // Define the array of leds
 CRGB leds[NUM_LEDS];
 
+// array to hold the long integer values associated with the colors
 long DigDug[256];
 
 
 void setup() {
+  // start serial monitor. this is how we can see prints in the code happening on the ESP32
   Serial.begin(115200);
   // open file system
   if (!SPIFFS.begin(true)) {
@@ -21,15 +23,17 @@ void setup() {
     return;
   }
   //open file
-  File json = SPIFFS.open("/images.txt");
-  if (!json) {
+  // this file is located in the /data directory
+  File file = SPIFFS.open("/images.txt");
+  if (!file) {
     Serial.println("Failed to open file for reading");
     return;
   }
   // fill string from file
-  String str = json.readString();
-  json.close();
+  String str = file.readString();
+  file.close();
   // filling image array
+  // this is old method used to convert the values to hex, now we can just use type hex in the file without need to convert
   for (int i = 0; i < 256; i++) {
     //get substrings of hex values
     int startIndex = i * 10;
@@ -41,9 +45,7 @@ void setup() {
     //get numeric value from string
     DigDug[i] = strtol(chars, NULL, 16);
   }
-
-
-  //Serial.print("HERE" + fileData);
+  
   FastLED.addLeds<CHIPSET, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050); // Init of the Fastled library
   FastLED.setBrightness(BRIGHTNESS);
   FastLED.clear(true);
@@ -55,10 +57,11 @@ void loop() {
   // put your main code here, to run repeatedly:
   frame(DigDug);
   delay(500);
-  FastLED.clear(true);
+  FastLED.clear(true); // clears the led values, turning off the leds
   delay(500);
 }
 
+// helper function to loop through and display the color values
 void frame(long arr[]) {
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = arr[i];

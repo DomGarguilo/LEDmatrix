@@ -10,7 +10,7 @@
 #define NUM_LEDS 256
 #define COLOR_ORDER GRB
 #define CHIPSET WS2812B
-#define BRIGHTNESS 2
+#define BRIGHTNESS 2  // adjusts the brightness of the LEDs. Can run off PC power ~2 and normally looks good in the frame ~35
 #define DATA_PIN 13  // Connected to the data pin of the first LED strip
 
 AsyncWebServer server(80);
@@ -19,6 +19,7 @@ AsyncWebServer server(80);
 const char* ssid = "Asparagus";
 const char* password = "CoolKid123!";
 
+// defining constants for use with the json feilds 
 const char* NAME = "name";
 const char* FRAME_DURATION = "frameDuration";
 const char* REPEAT_COUNT = "repeatCount";
@@ -26,11 +27,15 @@ const char* FRAMES = "frames";
 
 // Define the array of leds
 CRGB leds[NUM_LEDS];
+
+// define the filename. this is in the data folder next to this scripts' file
 const char *fileName = "/data.json";
+
 File myFile;
 //JsonObject doc;
 
 // HTML web page to handle 3 input fields (input1, input2, input3)
+//
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html><head>
   <title>ESP Input Form</title>
@@ -45,10 +50,12 @@ const char index_html[] PROGMEM = R"rawliteral(
   </form><br>
   </body></html>)rawliteral";
 
+// error message for the webpage
 void notFound(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
 }
 
+// initialize wifi stuff
 void initWifi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -239,6 +246,7 @@ void setup() {
 
 }
 
+// not used
 void loop() {
 
 }

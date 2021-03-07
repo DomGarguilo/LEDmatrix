@@ -11,10 +11,12 @@
 
 // Define the array of leds
 CRGB leds[NUM_LEDS];
+// Define filename. Located in /data sub-directory
 const char *fileName = "/data.json";
 File myFile;
 //JsonObject doc;
 
+// Json package used to read the json from file and return a json object
 JsonObject getJSonFromFile(DynamicJsonDocument *doc, String fileName, bool forceCleanONJsonError = true ) {
   // open the file for reading:
   myFile = SPIFFS.open(fileName);
