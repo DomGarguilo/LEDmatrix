@@ -1,6 +1,8 @@
 #include <FastLED.h>
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
+#include "OTA.h"
+#include <credentials.h>
 
 //variables for LED setup
 #define NUM_LEDS 256
@@ -16,7 +18,11 @@ void setup() {
   // Initialize serial port
   Serial.begin(115200);
   while (!Serial) continue;
+  
+  Serial.println("Booting");
 
+  setupOTA("TemplateSketch", mySSID, myPASSWORD);
+  
   if (!SPIFFS.begin(true)) {
     Serial.println(F("An Error has occurred while mounting SPIFFS"));
     return;
@@ -68,6 +74,7 @@ void setup() {
 
   while (1) {
     for (int i = 0; i < imgNum; i++) {
+      ArduinoOTA.handle();
       frame(imgArray[i]);
       delay(1000);
     }

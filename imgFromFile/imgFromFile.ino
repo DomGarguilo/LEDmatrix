@@ -1,5 +1,7 @@
 #include "FastLED.h"  // Fastled library to control the LEDs
 #include "SPIFFS.h"   // file system library
+#include "OTA.h"
+#include <credentials.h>
 
 #define NUM_LEDS 256
 #define COLOR_ORDER GRB
@@ -22,6 +24,10 @@ void setup() {
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
+
+  //setup over-the-air upload
+  setupOTA("TemplateSketch", mySSID, myPASSWORD);
+  
   //open file
   // this file is located in the /data directory
   File file = SPIFFS.open("/images.txt");
@@ -55,6 +61,7 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
+  ArduinoOTA.handle();
   frame(DigDug);
   delay(500);
   FastLED.clear(true); // clears the led values, turning off the leds
@@ -66,5 +73,6 @@ void frame(long arr[]) {
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = arr[i];
   }
+  ArduinoOTA.handle();
   FastLED.show();
 }

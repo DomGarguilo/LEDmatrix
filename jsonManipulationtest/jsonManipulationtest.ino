@@ -7,6 +7,8 @@
 
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
+#include "OTA.h"
+#include <credentials.h>
 
 const int chipSelect = 4;
 
@@ -109,6 +111,8 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) continue;
 
+  setupOTA("TemplateSketch", mySSID, myPASSWORD);
+
   delay(500);
 
   // Initialize SD library
@@ -154,5 +158,6 @@ void loop() {
   // Use arduinojson.org/v6/assistant to compute the capacity.
   //  StaticJsonDocument<512> doc;
   // You can use DynamicJsonDocument as well
+  ArduinoOTA.handle();
 
 }

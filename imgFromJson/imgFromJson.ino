@@ -1,25 +1,27 @@
 #include <FastLED.h>
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
+#include "OTA.h"
+#include <credentials.h>
 
 //variables for LED setup
 #define NUM_LEDS 256
 #define COLOR_ORDER GRB
 #define CHIPSET WS2812B
-#define BRIGHTNESS 35
+#define BRIGHTNESS 3
 #define DATA_PIN 13  // Connected to the data pin of the first LED strip
 
 // Define the array of leds
 CRGB leds[NUM_LEDS];
 // Define filename. Located in /data sub-directory
 const char *fileName = "/data.json";
-File myFile;
+
 //JsonObject doc;
 
 // Json package used to read the json from file and return a json object
 JsonObject getJSonFromFile(DynamicJsonDocument *doc, String fileName, bool forceCleanONJsonError = true ) {
   // open the file for reading:
-  myFile = SPIFFS.open(fileName);
+  File myFile = SPIFFS.open(fileName);
   if (myFile) {
 
     DeserializationError error = deserializeJson(*doc, myFile);
@@ -54,7 +56,7 @@ bool saveJSonToAFile(DynamicJsonDocument *doc, String fileName) {
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
   Serial.println(F("Open file in write mode"));
-  myFile = SPIFFS.open(fileName, FILE_WRITE);
+  File myFile = SPIFFS.open(fileName, FILE_WRITE);
   if (myFile) {
     Serial.print(F("fileName --> "));
     Serial.println(fileName);
@@ -88,6 +90,9 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) continue;
 
+  // setup over-the-air upload
+  setupOTA("TemplateSketch", mySSID, myPASSWORD);
+  
   if (!SPIFFS.begin(true)) {
     Serial.println(F("An Error has occurred while mounting SPIFFS"));
     return;
@@ -124,6 +129,7 @@ void setup() {
             const char* temp = doc[F("animationList")][i][F("frames")][k][j].as<char*>();
             long longVal = strtol(temp, NULL, 16);
             leds[j] = longVal;
+            ArduinoOTA.handle();
           }
           FastLED.show();
           delay(frameDuration); // sets the duration of each frame;

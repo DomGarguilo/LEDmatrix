@@ -1,4 +1,7 @@
 #include "FastLED.h"
+#include "OTA.h"
+#include <credentials.h>
+
 
 
 /*
@@ -23,10 +26,13 @@ void setup() {
   FastLED.addLeds<CHIPSET, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);
   FastLED.setBrightness( BRIGHTNESS );
 
+  //setup over-the-air upload
+  setupOTA("TemplateSketch", mySSID, myPASSWORD);
 }
 
 // displays a fishbowl animation
 void loop() {
+  ArduinoOTA.handle();
   fishBowl();
   /*
     creeper();

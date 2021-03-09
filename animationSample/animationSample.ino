@@ -1,5 +1,6 @@
 #include <FastLED.h> // Fastled library to control the LEDs
-
+#include "OTA.h"
+#include <credentials.h>
 
 #define NUM_LEDS 256
 #define COLOR_ORDER GRB
@@ -244,8 +245,14 @@ const long imageArr[row][col] = {
 
 // sets up our matrix for use
 void setup() {
+  Serial.begin(115200);
+  Serial.println("Booting");
+  
   FastLED.addLeds<CHIPSET, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050); // Init of the Fastled library
   FastLED.setBrightness(BRIGHTNESS);
+
+  //setup over-the-air upload
+  setupOTA("TemplateSketch", mySSID, myPASSWORD);
 }
 
 void loop() {
@@ -255,6 +262,7 @@ void loop() {
     // loops through each value in the sub array and sets each of the individual 256 leds to the color value
     for (int j = 0; j < col; j++) {
       leds[j] = imageArr[i][j];
+      ArduinoOTA.handle();
     }
     // after all the leds have a color value, .show() updates them then we sleep for the period of time we want each frame to last.
     FastLED.show();
@@ -272,7 +280,7 @@ void loop() {
 
       FastLED.show();
       delay(500);
-
+      ArduinoOTA.handle();
 
       // Put Qbert second frame
       FastLED.clear();
@@ -296,7 +304,7 @@ void loop() {
 
       FastLED.show();
       delay(250);
-
+      ArduinoOTA.handle();
 
       // Put DigDug second frame
       FastLED.clear();

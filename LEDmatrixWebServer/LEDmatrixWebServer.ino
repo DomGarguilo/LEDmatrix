@@ -5,6 +5,8 @@
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#include "OTA.h"
+#include <credentials.h>
 
 //variables for LED setup
 #define NUM_LEDS 256
@@ -210,6 +212,7 @@ void displayImage() {
             long longVal = strtol(temp, NULL, 16);
             leds[j] = longVal;
           }
+          ArduinoOTA.handle();
           FastLED.show();
           delay(frameDuration); // sets the duration of each frame;
         }
@@ -229,6 +232,8 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) continue;
 
+  setupOTA("TemplateSketch", mySSID, myPASSWORD);
+  
   // File system setup
   if (!SPIFFS.begin(true)) {
     Serial.println(F("An Error has occurred while mounting SPIFFS"));

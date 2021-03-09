@@ -7,6 +7,8 @@
 
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
+#include "OTA.h"
+#include <credentials.h>
 
 const int chipSelect = 4;
 
@@ -117,6 +119,8 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) continue;
 
+  setupOTA("TemplateSketch", mySSID, myPASSWORD);
+
   delay(500);
 
   // Initialize SD library
@@ -154,7 +158,9 @@ void loop() {
     Serial.println(F("Find data array!"));
     data = obj[F("data")];
   }
-
+  
+  ArduinoOTA.handle();
+  
   // create an object to add to the array
   JsonObject objArrayData = data.createNestedObject();
 
@@ -175,4 +181,5 @@ void loop() {
   printFile(filename);
 
   delay(5000);
+  ArduinoOTA.handle();
 }
