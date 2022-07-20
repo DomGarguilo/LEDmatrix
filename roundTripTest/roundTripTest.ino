@@ -21,6 +21,7 @@ const char *basePath = "http://192.168.0.241:5000";
 const String jsonSuffix = F(".json");
 const String slash = F("/");
 JsonArray orderArr;
+const char* destination[7];
 
 // seems like the json string or the json doc will fit in mem but not both
 // need to get the json string, loop through, write each animation to its own file then
@@ -61,7 +62,7 @@ DynamicJsonDocument getRequest(String path) {
         Serial.println(err.c_str());
       }
       doc.shrinkToFit();
-
+      http.end();
       return doc;
     } else {
       Serial.print(httpCode);
@@ -118,8 +119,9 @@ void initFiles() {
   }
 }
 
-JsonObject readFile(String filename) {
-  File file = SPIFFS.open(slash + filename + jsonSuffix, FILE_READ);
+DynamicJsonDocument readFile(String filename) {
+  filename = slash + filename + jsonSuffix;
+  File file = SPIFFS.open(filename, FILE_READ);
 
   if (!file) {
     Serial.println(F("Failed to open file for reading"));
@@ -143,7 +145,8 @@ JsonObject readFile(String filename) {
   file.close();
   doc.shrinkToFit();
 
-  return doc.to<JsonObject>();
+  //return doc.to<JsonObject>();
+  return doc;
 }
 
 void setup() {
@@ -195,29 +198,69 @@ void setup() {
   //JsonObject json = getJSonFromString(&json, order);
   // TODO: convert this to regular array. built in arduinojson api
   orderArr = json[F("order")].as<JsonArray>();
+  //const char * destination[orderArr.size()];
+  int count = 0;
+  Serial.println("HERE");
+  for (JsonVariant elem : orderArr) {
+    Serial.println(elem.as<char *>());
+    destination[count] = elem.as<char *>();
+    count++;
+  }
+  //copyArray(orderArr, destination);
   Serial.print(orderArr.size());
   Serial.println(F(" animations found in order array"));
   for (JsonVariant v : orderArr) {
     Serial.println(v.as<String>());
   }
+  //int destLength = sizeof(destination) / sizeof(char);
+  int destLength = orderArr.size();
+  Serial.print(sizeof(destLength));
+  Serial.println(F(" animations found in NEW ARRAY"));
+  for (int i = 0; i < destLength; i++) {
+    String current = String(destination[i]);
+    Serial.println("index: " + String(i) + " value: " + current);
+  }
   initFiles();
 
+}
+
+void printInfo(String s) {
+  DynamicJsonDocument doc = readFile(s);
+  //JsonObject dataJson = readFile(v.as<String>());
+  Serial.print("In printInfo(), doc returned with size of: ");
+  Serial.println(measureJson(doc));
+  for (JsonPair keyValue : doc.as<JsonObject>()) {
+    Serial.println(keyValue.key().c_str());
+  }
+  Serial.println("Name: " + doc.as<JsonObject>()[F("name")].as<String>());
+  delay(1000);
 }
 
 // main loop displaying animations
 void loop() {
   // use this array to open the files by name, read the data then unallocate both
-  for (JsonVariant v : orderArr) {
-    JsonObject dataJson = readFile(v.as<String>());
-    for (JsonPair keyValue : dataJson) {
-      Serial.println(keyValue.key().c_str());
-    }
-    Serial.println(dataJson[F("name")].as<String>());
-    delay(1000);
-    //    DynamicJsonDocument json (24000);
-    //    JsonObject dataJson = getJSonFromString(&json, dataString);
-    //    Serial.println(dataJson[F("name")].as<String>());
+  Serial.println("DEBUG: in main loop now");
+  //  Serial.print(orderArr.size());
+  //  Serial.println(F(" animations found in order array"));
+  //int destLength = sizeof(destination) / sizeof(char);
+  //Serial.print(sizeof(destLength));
+  Serial.println(F(" animations found in NEW ARRAY. Printing contents of Destination array"));
+  for (int i = 0; i < 7; i++) {
+    String currentName = String(destination[i]);
+    Serial.print("About to call print with index DEFINE LARGE ARRAY AT BEGGINIGN THEN JUST STORE LENGTH AS SEPARATE GLOBAL VAR ");
+    Serial.print(i);
+    Serial.println(currentName);
+    
+    //printInfo(String(destination[i]));
   }
+  //  for (JsonVariant v : orderArr) {
+  //    Serial.println("DEBUG: about to call printInfo() for " + v.as<String>());
+  //    //printInfo(v.as<String>());
+  //    Serial.println("DEBUG: DONE calling printInfo() for " + v.as<String>());
+  //    //    DynamicJsonDocument json (24000);
+  //    //    JsonObject dataJson = getJSonFromString(&json, dataString);
+  //    //    Serial.println(dataJson[F("name")].as<String>());
+  //  }
   delay(10000);
   //  while (1) {
   //    for (int i = 0; i < imgNum; i++) { //iterate through list of animations
