@@ -6,20 +6,26 @@
 #include <SPIFFS.h>
 #include "secrets.h"
 
-// SCRUB WIFI CREDS BEFORE PUSHING
-
 struct AnimationMetadata {
   String animationID;
   int frameDuration;
   int repeatCount;
   int totalFrames;
+  std::vector<String> frameOrder;
 
   AnimationMetadata(String id = "", int duration = 0, int repeat = 0, int frames = 0)
     : animationID(id), frameDuration(duration), repeatCount(repeat), totalFrames(frames) {}
 };
 
-#define DATA_PIN 22
-#define NUM_LEDS 9
+
+// board setup
+#define DATA_PIN 13
+#define NUM_LEDS 256
+#define COLOR_ORDER GRB
+#define CHIPSET WS2812B
+#define BRIGHTNESS 3
+
+// constants
 #define BYTES_PER_PIXEL 3
 #define MAX_ANIMATIONS 10
 #define SIZE (NUM_LEDS * BYTES_PER_PIXEL)
@@ -49,9 +55,9 @@ void fetchAndInitMetadata(HTTPClient& http) {
 }
 
 // Fetches frame data for a given animation ID and stores it in SPIFFS
-void fetchAndStoreFrameData(String animationID, int frameNumber, HTTPClient& http) {
+void fetchAndStoreFrameData(HTTPClient& http, String frameID) {
   String url = SERVER_BASE_URL;
-  url += "frameData/" + animationID + "/" + frameNumber;
+  url += "frameData/" + frameID;
   http.begin(url);
   int httpCode = http.GET();
 
@@ -59,8 +65,8 @@ void fetchAndStoreFrameData(String animationID, int frameNumber, HTTPClient& htt
     WiFiClient* stream = http.getStreamPtr();
     int bytesRead = stream->readBytes(frameDataBuffer, SIZE);
     if (bytesRead == SIZE) {
-      printFrameData();
-      saveFrameToSPIFFS(animationID, frameNumber);
+      //printFrameData();
+      saveFrameToSPIFFS(frameID);
     } else {
       Serial.print("Unexpected frame size: ");
       Serial.println(bytesRead);
@@ -88,21 +94,28 @@ void deserializeAndStoreMetadata(WiFiClient& stream) {
   animationCount = 0;
   for (JsonObject anim : animationsArray) {
     if (animationCount < MAX_ANIMATIONS) {
-      animations[animationCount++] = AnimationMetadata(
+      AnimationMetadata metadata(
         anim["animationID"].as<String>(),
         anim["frameDuration"].as<int>(),
         anim["repeatCount"].as<int>(),
         anim["totalFrames"].as<int>());
+
+      JsonArray order = anim["frameOrder"].as<JsonArray>();
+      for (String frameId : order) {
+        metadata.frameOrder.push_back(frameId);
+      }
+
+      animations[animationCount++] = metadata;
     }
   }
 }
 
-void saveFrameToSPIFFS(String animationID, int frameNumber) {
-  String fileName = "/" + animationID + "_" + String(frameNumber) + ".bin";
+void saveFrameToSPIFFS(String frameID) {
+  String fileName = frameID.substring(0,8) + ".bin";
 
   File file = SPIFFS.open(fileName, FILE_WRITE);
   if (!file) {
-    Serial.println("Failed to open file for writing");
+    Serial.println("Failed to open file for writing. Filename: " + fileName);
     return;
   }
 
@@ -111,12 +124,12 @@ void saveFrameToSPIFFS(String animationID, int frameNumber) {
   Serial.println("Frame saved to SPIFFS: " + fileName);
 }
 
-void readFrameFromSPIFFS(String animationID, int frameNumber) {
-  String fileName = "/" + animationID + "_" + String(frameNumber) + ".bin";
+void readFrameFromSPIFFS(String frameID) {
+  String fileName = frameID.substring(0,8) + ".bin";
 
   File file = SPIFFS.open(fileName, FILE_READ);
   if (!file) {
-    Serial.println("Failed to open file for reading");
+    Serial.println("Failed to open file for reading. Filename: " + fileName);
     return;
   }
 
@@ -129,9 +142,23 @@ void readFrameFromSPIFFS(String animationID, int frameNumber) {
 }
 
 void parseAndDisplayFrame() {
-  for (int i = 0; i < NUM_LEDS; ++i) {
-    int index = i * BYTES_PER_PIXEL;
-    leds[i] = CRGB(frameDataBuffer[index], frameDataBuffer[index + 1], frameDataBuffer[index + 2]);
+  int numRows = NUM_LEDS / 16;  // Assuming your matrix is 16 LEDs wide
+  for (int row = 0; row < numRows; ++row) {
+    for (int col = 0; col < 16; ++col) {
+      int ledIndex = row * 16 + col;
+      int bufferIndex;
+
+      if (row % 2 == 0) {
+        // Even rows: direct mapping
+        bufferIndex = ledIndex * BYTES_PER_PIXEL;
+      } else {
+        // Odd rows: reverse order
+        int reverseCol = 15 - col;
+        bufferIndex = (row * 16 + reverseCol) * BYTES_PER_PIXEL;
+      }
+
+      leds[ledIndex] = CRGB(frameDataBuffer[bufferIndex], frameDataBuffer[bufferIndex + 1], frameDataBuffer[bufferIndex + 2]);
+    }
   }
   FastLED.show();
 }
@@ -146,9 +173,14 @@ void printAnimationMetadata() {
     Serial.println(animations[i].repeatCount);
     Serial.print("Total Frames: ");
     Serial.println(animations[i].totalFrames);
-    Serial.println("-----");
+    Serial.print("Frame Order: ");
+    for (const String& frameId : animations[i].frameOrder) {
+      Serial.print(frameId + " ");
+    }
+    Serial.println("\n-----");
   }
 }
+
 
 void printFrameData() {
   Serial.println("Frame Data:");
@@ -161,7 +193,7 @@ void printFrameData() {
       Serial.print("0");
     }
     Serial.print(frameDataBuffer[i], HEX);  // Print byte in HEX
-    Serial.print(" ");                // Space between bytes
+    Serial.print(" ");                      // Space between bytes
   }
   Serial.println("\n-------------------");
 }
@@ -188,11 +220,39 @@ void connectToWifi() {
   }
 }
 
+void listSPIFFSFiles() {
+  File root = SPIFFS.open("/");
+  File file = root.openNextFile();
+  while (file) {
+    Serial.println(file.name());
+    file = root.openNextFile();
+  }
+}
+
+void writeTestFile() {
+    File file = SPIFFS.open("/testfile.txt", FILE_WRITE);
+    if (!file) {
+        Serial.println("There was an error opening the file for writing");
+        return;
+    }
+
+    if (file.print("This is a test file.")) {
+        Serial.println("File was written successfully");
+    } else {
+        Serial.println("File write failed");
+    }
+
+    file.close();
+}
+
+
 void setup() {
 
   Serial.begin(115200);
 
-  FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);  // GRB ordering is assumed
+  FastLED.addLeds<CHIPSET, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);  // Init of the Fastled library
+  FastLED.setBrightness(BRIGHTNESS);
+  FastLED.clear(true);
 
   connectToWifi();
 
@@ -200,6 +260,12 @@ void setup() {
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
+
+  writeTestFile();
+
+  listSPIFFSFiles();
+
+  //SPIFFS.format();
 
   HTTPClient http;
 
@@ -210,18 +276,21 @@ void setup() {
   for (int i = 0; i < animationCount; i++) {
     Serial.println("Saving to spiffs: " + animations[i].animationID);
     for (int j = 0; j < animations[i].totalFrames; j++) {
-      fetchAndStoreFrameData(animations[i].animationID, j, http);
+      fetchAndStoreFrameData(http, animations[i].frameOrder[j]);
     }
   }
 }
 
 void loop() {
   for (int i = 0; i < animationCount; i++) {
-    Serial.println("Displaying " + animations[i].animationID);
+    Serial.println("Displaying Animation: " + animations[i].animationID);
     for (int j = 0; j < animations[i].totalFrames; j++) {
-      readFrameFromSPIFFS(animations[i].animationID, j );
+      String currentFrameID = animations[i].frameOrder[j];
+      Serial.println("Displaying Frame ID: " + currentFrameID);
+
+      readFrameFromSPIFFS(currentFrameID);
       parseAndDisplayFrame();
-      printFrameData();
+      //printFrameData();
       delay(animations[i].frameDuration * 3);
     }
   }
