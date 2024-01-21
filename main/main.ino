@@ -142,7 +142,7 @@ void readFrameFromSPIFFS(String frameID) {
 }
 
 void parseAndDisplayFrame() {
-  for (int row = 0; row < numRows; ++row) {
+  for (int row = 0; row < LENGTH; ++row) {
     for (int col = 0; col < LENGTH; ++col) {
       int ledIndex = row * LENGTH + col;
       int bufferIndex;
