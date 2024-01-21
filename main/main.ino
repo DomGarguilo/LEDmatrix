@@ -20,12 +20,13 @@ struct AnimationMetadata {
 
 // board setup
 #define DATA_PIN 13
-#define NUM_LEDS 256
+#define LENGTH 16
+#define NUM_LEDS (LENGTH * LENGTH)
 #define COLOR_ORDER GRB
 #define CHIPSET WS2812B
 #define BRIGHTNESS 3
 
-// constants
+// other constants
 #define BYTES_PER_PIXEL 3
 #define MAX_ANIMATIONS 10
 #define SIZE (NUM_LEDS * BYTES_PER_PIXEL)
@@ -65,7 +66,6 @@ void fetchAndStoreFrameData(HTTPClient& http, String frameID) {
     WiFiClient* stream = http.getStreamPtr();
     int bytesRead = stream->readBytes(frameDataBuffer, SIZE);
     if (bytesRead == SIZE) {
-      //printFrameData();
       saveFrameToSPIFFS(frameID);
     } else {
       Serial.print("Unexpected frame size: ");
@@ -111,9 +111,9 @@ void deserializeAndStoreMetadata(WiFiClient& stream) {
 }
 
 void saveFrameToSPIFFS(String frameID) {
-  String fileName = frameID.substring(0,8) + ".bin";
+  String fileName = "/" + frameID.substring(0, 25) + ".bin";
 
-  File file = SPIFFS.open(fileName, FILE_WRITE);
+  File file = SPIFFS.open(fileName, FILE_WRITE, true);
   if (!file) {
     Serial.println("Failed to open file for writing. Filename: " + fileName);
     return;
@@ -125,7 +125,7 @@ void saveFrameToSPIFFS(String frameID) {
 }
 
 void readFrameFromSPIFFS(String frameID) {
-  String fileName = frameID.substring(0,8) + ".bin";
+  String fileName = "/" + frameID.substring(0, 25) + ".bin";
 
   File file = SPIFFS.open(fileName, FILE_READ);
   if (!file) {
@@ -142,25 +142,49 @@ void readFrameFromSPIFFS(String frameID) {
 }
 
 void parseAndDisplayFrame() {
-  int numRows = NUM_LEDS / 16;  // Assuming your matrix is 16 LEDs wide
   for (int row = 0; row < numRows; ++row) {
-    for (int col = 0; col < 16; ++col) {
-      int ledIndex = row * 16 + col;
+    for (int col = 0; col < LENGTH; ++col) {
+      int ledIndex = row * LENGTH + col;
       int bufferIndex;
 
+      // account for serpentine layout of led strips
       if (row % 2 == 0) {
         // Even rows: direct mapping
         bufferIndex = ledIndex * BYTES_PER_PIXEL;
       } else {
         // Odd rows: reverse order
-        int reverseCol = 15 - col;
-        bufferIndex = (row * 16 + reverseCol) * BYTES_PER_PIXEL;
+        int reverseCol = LENGTH - 1 - col;
+        bufferIndex = (row * LENGTH + reverseCol) * BYTES_PER_PIXEL;
       }
 
       leds[ledIndex] = CRGB(frameDataBuffer[bufferIndex], frameDataBuffer[bufferIndex + 1], frameDataBuffer[bufferIndex + 2]);
     }
   }
   FastLED.show();
+}
+
+// DEBUG METHODS
+
+void connectToWifi() {
+  WiFi.begin(SSID, WIFI_PASSWORD);
+  Serial.println("Connecting to WiFi...");
+
+  // Wait for connection
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 200) {
+    delay(100);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Failed to connect to WiFi. Please check credentials and try again.");
+  } else {
+    Serial.println("");
+    Serial.println("WiFi connected successfully.");
+    Serial.print("IP Address of this device: ");
+    Serial.println(WiFi.localIP());
+  }
 }
 
 void printAnimationMetadata() {
@@ -181,7 +205,6 @@ void printAnimationMetadata() {
   }
 }
 
-
 void printFrameData() {
   Serial.println("Frame Data:");
   for (size_t i = 0; i < SIZE; i++) {
@@ -198,28 +221,6 @@ void printFrameData() {
   Serial.println("\n-------------------");
 }
 
-void connectToWifi() {
-  WiFi.begin(SSID, WIFI_PASSWORD);
-  Serial.println("Connecting to WiFi...");
-
-  // Wait for connection
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {  // 20 attempts
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Failed to connect to WiFi. Please check credentials and try again.");
-  } else {
-    Serial.println("");
-    Serial.println("WiFi connected successfully.");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-  }
-}
-
 void listSPIFFSFiles() {
   File root = SPIFFS.open("/");
   File file = root.openNextFile();
@@ -230,21 +231,20 @@ void listSPIFFSFiles() {
 }
 
 void writeTestFile() {
-    File file = SPIFFS.open("/testfile.txt", FILE_WRITE);
-    if (!file) {
-        Serial.println("There was an error opening the file for writing");
-        return;
-    }
+  File file = SPIFFS.open("/testfile.txt", FILE_WRITE, true);
+  if (!file) {
+    Serial.println("There was an error opening the file for writing");
+    return;
+  }
 
-    if (file.print("This is a test file.")) {
-        Serial.println("File was written successfully");
-    } else {
-        Serial.println("File write failed");
-    }
+  if (file.print("This is a test file.")) {
+    Serial.println("File was written successfully");
+  } else {
+    Serial.println("File write failed");
+  }
 
-    file.close();
+  file.close();
 }
-
 
 void setup() {
 
@@ -261,11 +261,11 @@ void setup() {
     return;
   }
 
+  //SPIFFS.format();
+
   writeTestFile();
 
   listSPIFFSFiles();
-
-  //SPIFFS.format();
 
   HTTPClient http;
 
@@ -290,7 +290,6 @@ void loop() {
 
       readFrameFromSPIFFS(currentFrameID);
       parseAndDisplayFrame();
-      //printFrameData();
       delay(animations[i].frameDuration * 3);
     }
   }
