@@ -6,18 +6,6 @@
 #include <SPIFFS.h>
 #include "secrets.h"
 
-struct AnimationMetadata {
-  String animationID;
-  int frameDuration;
-  int repeatCount;
-  int totalFrames;
-  std::vector<String> frameOrder;
-
-  AnimationMetadata(String id = "", int duration = 0, int repeat = 0, int frames = 0)
-    : animationID(id), frameDuration(duration), repeatCount(repeat), totalFrames(frames) {}
-};
-
-
 // board setup
 #define DATA_PIN 13
 #define LENGTH 16
@@ -31,17 +19,19 @@ struct AnimationMetadata {
 #define MAX_ANIMATIONS 10
 #define SIZE (NUM_LEDS * BYTES_PER_PIXEL)
 
-AnimationMetadata animations[MAX_ANIMATIONS];
-int animationCount = 0;
+#define METADATA_URL SERVER_BASE_URL "metadata"
+#define FRAME_DATA_BASE_URL SERVER_BASE_URL "frameData/"
+
+DynamicJsonDocument animationsDoc(4096);
+JsonArray animations = animationsDoc.to<JsonArray>();
+
 uint8_t frameDataBuffer[SIZE];
 
 CRGB leds[NUM_LEDS];
 
 // Fetches metadata and uses it to initialize an AnimationMetadata object
 void fetchAndInitMetadata(HTTPClient& http) {
-  String url = SERVER_BASE_URL;
-  url += "metadata";
-  http.begin(url);
+  http.begin(METADATA_URL);
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK) {
@@ -55,10 +45,16 @@ void fetchAndInitMetadata(HTTPClient& http) {
   http.end();
 }
 
-// Fetches frame data for a given animation ID and stores it in SPIFFS
-void fetchAndStoreFrameData(HTTPClient& http, String frameID) {
-  String url = SERVER_BASE_URL;
-  url += "frameData/" + frameID;
+// creates the endpoint to fetch the data of the given frame
+void constructFrameDataURL(char* url, const char* frameID, int bufferSize) {
+  snprintf(url, bufferSize, "%s%s", FRAME_DATA_BASE_URL, frameID);
+}
+
+// Fetches frame data for a given frame ID and stores it in SPIFFS
+void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
+  char url[100];
+  constructFrameDataURL(url, frameID, sizeof(url));
+
   http.begin(url);
   int httpCode = http.GET();
 
@@ -81,64 +77,65 @@ void fetchAndStoreFrameData(HTTPClient& http, String frameID) {
 }
 
 void deserializeAndStoreMetadata(WiFiClient& stream) {
-  DynamicJsonDocument doc(4096);
-  DeserializationError error = deserializeJson(doc, stream);
+  DeserializationError error = deserializeJson(animationsDoc, stream);
 
   if (error) {
     Serial.print("deserializeJson() failed: ");
     Serial.println(error.c_str());
     return;
   }
-
-  JsonArray animationsArray = doc.as<JsonArray>();
-  animationCount = 0;
-  for (JsonObject anim : animationsArray) {
-    if (animationCount < MAX_ANIMATIONS) {
-      AnimationMetadata metadata(
-        anim["animationID"].as<String>(),
-        anim["frameDuration"].as<int>(),
-        anim["repeatCount"].as<int>(),
-        anim["totalFrames"].as<int>());
-
-      JsonArray order = anim["frameOrder"].as<JsonArray>();
-      for (String frameId : order) {
-        metadata.frameOrder.push_back(frameId);
-      }
-
-      animations[animationCount++] = metadata;
-    }
-  }
 }
 
-void saveFrameToSPIFFS(String frameID) {
-  String fileName = "/" + frameID.substring(0, 25) + ".bin";
+void constructFilePath(char* filePath, const char* frameID, int bufferSize) {
+  // Max filename length of 31 characters (including ".bin") plus mandtadory null terminator.
+  const int maxFrameIDLength = 31 - 4 - 1;
+  char trimmedFrameID[maxFrameIDLength + 1];  // +1 for null terminator
 
-  File file = SPIFFS.open(fileName, FILE_WRITE, true);
+  // Copy only the first part of the frameID to trimmedFrameID
+  strncpy(trimmedFrameID, frameID, maxFrameIDLength);
+  trimmedFrameID[maxFrameIDLength] = '\0';  // Ensuring null termination
+
+  // Construct the file path
+  snprintf(filePath, bufferSize, "/%s.bin", trimmedFrameID);
+}
+
+void saveFrameToSPIFFS(const char* frameID) {
+  char filePath[32];  // max filename length is 32
+  constructFilePath(filePath, frameID, sizeof(filePath));
+
+  File file = SPIFFS.open(filePath, FILE_WRITE, true);
   if (!file) {
-    Serial.println("Failed to open file for writing. Filename: " + fileName);
+    Serial.print("Failed to open file for writing. Filename: ");
+    Serial.println(filePath);
     return;
   }
 
   file.write(frameDataBuffer, SIZE);
   file.close();
-  Serial.println("Frame saved to SPIFFS: " + fileName);
+  Serial.print("Frame saved to SPIFFS: ");
+  Serial.println(filePath);
 }
 
-void readFrameFromSPIFFS(String frameID) {
-  String fileName = "/" + frameID.substring(0, 25) + ".bin";
+void readFrameFromSPIFFS(const char* frameID) {
+  char filePath[32];  // max filename length is 32
+  constructFilePath(filePath, frameID, sizeof(filePath));
 
-  File file = SPIFFS.open(fileName, FILE_READ);
+  File file = SPIFFS.open(filePath, FILE_READ);
   if (!file) {
-    Serial.println("Failed to open file for reading. Filename: " + fileName);
+    Serial.print("Failed to open file for reading. Filename: ");
+    Serial.println(filePath);
     return;
   }
 
   size_t bytesRead = file.read(frameDataBuffer, SIZE);
   if (bytesRead != SIZE) {
-    Serial.println("Failed to read full frame");
+    Serial.print("Failed to read full frame from ");
+    Serial.println(filePath);
+  } else {
+    Serial.print("Frame read from SPIFFS: ");
+    Serial.println(filePath);
   }
   file.close();
-  Serial.println("Frame read from SPIFFS: " + fileName);
 }
 
 void parseAndDisplayFrame() {
@@ -188,18 +185,26 @@ void connectToWifi() {
 }
 
 void printAnimationMetadata() {
-  for (int i = 0; i < animationCount; ++i) {
+  for (JsonObject animation : animations) {
+    const char* animationID = animation["animationID"].as<const char*>();
+    int frameDuration = animation["frameDuration"];
+    int repeatCount = animation["repeatCount"];
+    int totalFrames = animation["totalFrames"];
+
     Serial.print("Animation ID: ");
-    Serial.println(animations[i].animationID);
+    Serial.println(animationID);
     Serial.print("Frame Duration: ");
-    Serial.println(animations[i].frameDuration);
+    Serial.println(frameDuration);
     Serial.print("Repeat Count: ");
-    Serial.println(animations[i].repeatCount);
+    Serial.println(repeatCount);
     Serial.print("Total Frames: ");
-    Serial.println(animations[i].totalFrames);
+    Serial.println(totalFrames);
     Serial.print("Frame Order: ");
-    for (const String& frameId : animations[i].frameOrder) {
-      Serial.print(frameId + " ");
+
+    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
+    for (const char* frameID : frameOrder) {
+      Serial.print(frameID);
+      Serial.print(" ");
     }
     Serial.println("\n-----");
   }
@@ -273,24 +278,34 @@ void setup() {
   printAnimationMetadata();
 
   // retrieve each frame from the server and write it to a file
-  for (int i = 0; i < animationCount; i++) {
-    Serial.println("Saving to spiffs: " + animations[i].animationID);
-    for (int j = 0; j < animations[i].totalFrames; j++) {
-      fetchAndStoreFrameData(http, animations[i].frameOrder[j]);
+  for (JsonObject animation : animations) {
+    const char* animationID = animation["animationID"].as<const char*>();
+    Serial.print("Saving to SPIFFS: ");
+    Serial.println(animationID);
+
+    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
+    for (const char* frameID : frameOrder) {
+      fetchAndStoreFrameData(http, frameID);
     }
   }
 }
 
 void loop() {
-  for (int i = 0; i < animationCount; i++) {
-    Serial.println("Displaying Animation: " + animations[i].animationID);
-    for (int j = 0; j < animations[i].totalFrames; j++) {
-      String currentFrameID = animations[i].frameOrder[j];
-      Serial.println("Displaying Frame ID: " + currentFrameID);
+  for (JsonObject animation : animations) {
+    const char* animationID = animation["animationID"].as<const char*>();
+    int totalFrames = animation["totalFrames"];
+    int frameDuration = animation["frameDuration"];
+
+    Serial.print("Displaying Animation: ");
+    Serial.println(animationID);
+    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
+    for (const char* currentFrameID : frameOrder) {
+      Serial.print("Displaying Frame ID: ");
+      Serial.println(currentFrameID);
 
       readFrameFromSPIFFS(currentFrameID);
       parseAndDisplayFrame();
-      delay(animations[i].frameDuration * 3);
+      delay(frameDuration * 3);
     }
   }
 }
