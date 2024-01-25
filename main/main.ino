@@ -29,7 +29,7 @@ uint8_t frameDataBuffer[SIZE];
 
 CRGB leds[NUM_LEDS];
 
-// Fetches metadata and uses it to initialize an AnimationMetadata object
+// fetches metadata and initializes the global metadata json
 void fetchAndInitMetadata(HTTPClient& http) {
   http.begin(METADATA_URL);
   int httpCode = http.GET();
@@ -52,6 +52,16 @@ void constructFrameDataURL(char* url, const char* frameID, int bufferSize) {
 
 // Fetches frame data for a given frame ID and stores it in SPIFFS
 void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
+  char filePath[32];  // max filename length is 32
+  constructFilePath(filePath, frameID, sizeof(filePath));
+
+  // skip fetching and creating file if the file already exists
+  if (SPIFFS.exists(filePath)) {
+    Serial.print("File already exists: ");
+    Serial.println(filePath);
+    return;
+  }
+
   char url[100];
   constructFrameDataURL(url, frameID, sizeof(url));
 
@@ -62,7 +72,7 @@ void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
     WiFiClient* stream = http.getStreamPtr();
     int bytesRead = stream->readBytes(frameDataBuffer, SIZE);
     if (bytesRead == SIZE) {
-      saveFrameToSPIFFS(frameID);
+      saveFrameToSPIFFS(filePath);
     } else {
       Serial.print("Unexpected frame size: ");
       Serial.println(bytesRead);
@@ -99,10 +109,8 @@ void constructFilePath(char* filePath, const char* frameID, int bufferSize) {
   snprintf(filePath, bufferSize, "/%s.bin", trimmedFrameID);
 }
 
-void saveFrameToSPIFFS(const char* frameID) {
-  char filePath[32];  // max filename length is 32
-  constructFilePath(filePath, frameID, sizeof(filePath));
-
+// write the frame data buffer to a file at the given path
+void saveFrameToSPIFFS(const char* filePath) {
   File file = SPIFFS.open(filePath, FILE_WRITE, true);
   if (!file) {
     Serial.print("Failed to open file for writing. Filename: ");
