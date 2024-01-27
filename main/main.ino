@@ -34,20 +34,26 @@ CRGB leds[NUM_LEDS];
 // fetches metadata and initializes the global metadata json
 // returns true if the data was successfully fetched
 bool fetchAndInitMetadata(HTTPClient& http) {
-  http.begin(METADATA_URL);
-  int httpCode = http.GET();
+  const int maxRetries = 3;
+  for (int attempt = 0; attempt < maxRetries; attempt++) {
+    http.begin(METADATA_URL);
+    int httpCode = http.GET();
 
-  if (httpCode == HTTP_CODE_OK) {
-    WiFiClient& stream = http.getStream();
-    bool success = deserializeAndStoreMetadata(stream);
-    http.end();
-    return success;
-  } else {
-    Serial.print("Metadata fetch failed, HTTP code: ");
-    Serial.println(httpCode);
-    http.end();
-    return false;
+    if (httpCode == HTTP_CODE_OK) {
+      WiFiClient& stream = http.getStream();
+      bool success = deserializeAndStoreMetadata(stream);
+      http.end();
+      return success;
+    } else {
+      Serial.print("Metadata fetch attempt ");
+      Serial.print(attempt + 1);
+      Serial.print(" failed, HTTP code: ");
+      Serial.println(httpCode);
+      http.end();
+      delay(1000);  // wait for 1 second before retrying
+    }
   }
+  return false;
 }
 
 // creates the endpoint to fetch the data of the given frame
@@ -57,38 +63,44 @@ void constructFrameDataURL(char* url, const char* frameID, int bufferSize) {
 
 // Fetches frame data for a given frame ID and stores it in SPIFFS
 void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
-  char filePath[32];  // max filename length is 32
+  const int maxRetries = 3;
+  char filePath[32];
   constructFilePath(filePath, frameID, sizeof(filePath));
 
-  // skip fetching and creating file if the file already exists
   if (SPIFFS.exists(filePath)) {
     Serial.print("File already exists: ");
     Serial.println(filePath);
     return;
   }
 
-  char url[100];
-  constructFrameDataURL(url, frameID, sizeof(url));
+  for (int attempt = 0; attempt < maxRetries; attempt++) {
+    char url[100];
+    constructFrameDataURL(url, frameID, sizeof(url));
 
-  http.begin(url);
-  int httpCode = http.GET();
+    http.begin(url);
+    int httpCode = http.GET();
 
-  if (httpCode == HTTP_CODE_OK) {
-    WiFiClient* stream = http.getStreamPtr();
-    int bytesRead = stream->readBytes(frameDataBuffer, SIZE);
-    if (bytesRead == SIZE) {
-      saveFrameToSPIFFS(filePath);
+    if (httpCode == HTTP_CODE_OK) {
+      WiFiClient* stream = http.getStreamPtr();
+      int bytesRead = stream->readBytes(frameDataBuffer, SIZE);
+      if (bytesRead == SIZE) {
+        saveFrameToSPIFFS(filePath);
+        return;
+      } else {
+        Serial.print("Unexpected frame size: ");
+        Serial.println(bytesRead);
+      }
     } else {
-      Serial.print("Unexpected frame size: ");
-      Serial.println(bytesRead);
+      Serial.print("Frame data fetch attempt ");
+      Serial.print(attempt + 1);
+      Serial.print(" failed, HTTP code: ");
+      Serial.println(httpCode);
     }
 
-  } else {
-    Serial.print("Frame data fetch failed, HTTP code: ");
-    Serial.println(httpCode);
+    http.end();
+    delay(1000);
   }
-
-  http.end();
+  Serial.println("Failed to fetch frame data after retries.");
 }
 
 void saveMetadataToFile() {
