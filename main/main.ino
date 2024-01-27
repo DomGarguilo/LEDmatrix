@@ -103,7 +103,7 @@ void saveMetadataToFile() {
   if (metadataDocSize == writtenLength) {
     Serial.println("Metadata saved to file. Saw expected length written.");
   } else {
-    Serial.println("Did not see expected length written to file.");
+    Serial.println("Did not see expected length written to metadata file.");
   }
 }
 
