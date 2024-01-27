@@ -21,28 +21,32 @@
 
 #define METADATA_URL SERVER_BASE_URL "metadata"
 #define FRAME_DATA_BASE_URL SERVER_BASE_URL "frameData/"
+#define METADATA_FILE_NAME "/metadata.json"
 
-DynamicJsonDocument animationsDoc(4096);
-JsonArray animations = animationsDoc.to<JsonArray>();
+DynamicJsonDocument metadataDoc(4096);
+JsonArray metadata = metadataDoc.to<JsonArray>();
 
 uint8_t frameDataBuffer[SIZE];
 
 CRGB leds[NUM_LEDS];
 
 // fetches metadata and initializes the global metadata json
-void fetchAndInitMetadata(HTTPClient& http) {
+// returns true if the data was successfully fetched
+bool fetchAndInitMetadata(HTTPClient& http) {
   http.begin(METADATA_URL);
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK) {
     WiFiClient& stream = http.getStream();
-    deserializeAndStoreMetadata(stream);
+    bool success = deserializeAndStoreMetadata(stream);
+    http.end();
+    return success;
   } else {
     Serial.print("Metadata fetch failed, HTTP code: ");
     Serial.println(httpCode);
+    http.end();
+    return false;
   }
-
-  http.end();
 }
 
 // creates the endpoint to fetch the data of the given frame
@@ -86,14 +90,50 @@ void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
   http.end();
 }
 
-void deserializeAndStoreMetadata(WiFiClient& stream) {
-  DeserializationError error = deserializeJson(animationsDoc, stream);
+void saveMetadataToFile() {
+  File file = SPIFFS.open(METADATA_FILE_NAME, FILE_WRITE);
+  if (!file) {
+    Serial.println("Failed to open metadata file for writing");
+    return;
+  }
+  serializeJson(metadataDoc, file);
+  file.close();
+  Serial.println("Metadata saved to file");
+}
+
+bool loadMetadataFromFile() {
+  File file = SPIFFS.open(METADATA_FILE_NAME, FILE_READ);
+  if (!file) {
+    Serial.println("Failed to open metadata file");
+    return false;
+  }
+
+  DeserializationError error = deserializeJson(metadataDoc, file);
+  file.close();
 
   if (error) {
     Serial.print("deserializeJson() failed: ");
     Serial.println(error.c_str());
-    return;
+    return false;
+  } else {
+    Serial.println("Successfully loaded metadata from save file.");
   }
+
+  return true;
+}
+
+// deserialize the metadata json from the stream and store it in file
+bool deserializeAndStoreMetadata(WiFiClient& stream) {
+  DeserializationError error = deserializeJson(metadataDoc, stream);
+
+  if (error) {
+    Serial.print("deserializeJson() failed: ");
+    Serial.println(error.c_str());
+    return false;
+  }
+
+  saveMetadataToFile();
+  return true;
 }
 
 void constructFilePath(char* filePath, const char* frameID, int bufferSize) {
@@ -193,7 +233,7 @@ void connectToWifi() {
 }
 
 void printAnimationMetadata() {
-  for (JsonObject animation : animations) {
+  for (JsonObject animation : metadata) {
     const char* animationID = animation["animationID"].as<const char*>();
     int frameDuration = animation["frameDuration"];
     int repeatCount = animation["repeatCount"];
@@ -267,39 +307,57 @@ void setup() {
   FastLED.setBrightness(BRIGHTNESS);
   FastLED.clear(true);
 
-  connectToWifi();
-
   if (!SPIFFS.begin(true)) {
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
 
   //SPIFFS.format();
+  //writeTestFile();
+  //listSPIFFSFiles();
 
-  writeTestFile();
-
-  listSPIFFSFiles();
-
+  connectToWifi();
   HTTPClient http;
 
-  fetchAndInitMetadata(http);
   printAnimationMetadata();
 
-  // retrieve each frame from the server and write it to a file
-  for (JsonObject animation : animations) {
-    const char* animationID = animation["animationID"].as<const char*>();
-    Serial.print("Saving to SPIFFS: ");
-    Serial.println(animationID);
+  bool fetchedNewData = false;
+  if (WiFi.status() == WL_CONNECTED) {
+    fetchedNewData = fetchAndInitMetadata(http);
+    if (fetchedNewData) {
+      // successfully fetched new metadata. now fetch and store frame data
+      printAnimationMetadata();
+      for (JsonObject animation : metadata) {
+        const char* animationID = animation["animationID"].as<const char*>();
+        Serial.print("Saving to SPIFFS: ");
+        Serial.println(animationID);
+        JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
+        for (const char* frameID : frameOrder) {
+          fetchAndStoreFrameData(http, frameID);
+        }
+      }
+    } else {
+      Serial.println("Could not fetch new metadata from server.");
+    }
+  } else {
+    Serial.println("Couldn't connect to WiFi.");
+  }
 
-    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
-    for (const char* frameID : frameOrder) {
-      fetchAndStoreFrameData(http, frameID);
+  // If failed to fetch new data, use saved metadata
+  if (!fetchedNewData) {
+    Serial.println("Loading animations from saved files (hopefully)");
+    if (SPIFFS.exists(METADATA_FILE_NAME)) {
+      loadMetadataFromFile();
+    } else {
+      Serial.println("No saved metadata available.");
+      // Handle the case where no saved data is available
+      // maybe restart the esp32 or display error frame
     }
   }
 }
 
 void loop() {
-  for (JsonObject animation : animations) {
+  for (JsonObject animation : metadata) {
     const char* animationID = animation["animationID"].as<const char*>();
     int totalFrames = animation["totalFrames"];
     int frameDuration = animation["frameDuration"];
