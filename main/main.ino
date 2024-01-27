@@ -96,9 +96,15 @@ void saveMetadataToFile() {
     Serial.println("Failed to open metadata file for writing");
     return;
   }
-  serializeJson(metadataDoc, file);
+  size_t metadataDocSize = measureJson(metadataDoc);
+  size_t writtenLength = serializeJson(metadataDoc, file);
   file.close();
-  Serial.println("Metadata saved to file");
+
+  if (metadataDocSize == writtenLength) {
+    Serial.println("Metadata saved to file. Saw expected length written.");
+  } else {
+    Serial.println("Did not see expected length written to file.");
+  }
 }
 
 bool loadMetadataFromFile() {
