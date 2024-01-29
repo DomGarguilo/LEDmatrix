@@ -64,7 +64,7 @@ void constructFrameDataURL(char* url, const char* frameID, int bufferSize) {
 // Fetches frame data for a given frame ID and stores it in SPIFFS
 void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
   const int maxRetries = 3;
-  char filePath[32];
+  char filePath[32];  // max filename length is 32
   constructFilePath(filePath, frameID, sizeof(filePath));
 
   if (SPIFFS.exists(filePath)) {
@@ -163,16 +163,61 @@ bool deserializeAndStoreMetadata(WiFiClient& stream) {
 }
 
 void constructFilePath(char* filePath, const char* frameID, int bufferSize) {
-  // Max filename length of 31 characters (including ".bin") plus mandtadory null terminator.
-  const int maxFrameIDLength = 31 - 4 - 1;
-  char trimmedFrameID[maxFrameIDLength + 1];  // +1 for null terminator
+  snprintf(filePath, bufferSize, "/%s.bin", frameID);
+}
 
-  // Copy only the first part of the frameID to trimmedFrameID
-  strncpy(trimmedFrameID, frameID, maxFrameIDLength);
-  trimmedFrameID[maxFrameIDLength] = '\0';  // Ensuring null termination
+// delete any frame files that are not refferenced in the current metadata
+// this will prevent storage from filling up
+void cleanupUnusedFiles() {
+  File root = SPIFFS.open("/");
+  File file = root.openNextFile();
 
-  // Construct the file path
-  snprintf(filePath, bufferSize, "/%s.bin", trimmedFrameID);
+  while (file) {
+    const char* fileName = file.name();
+    Serial.print("Assessing file for deletion: ");
+    Serial.println(fileName);
+
+    // skip metadata file
+    if (strcmp(fileName, METADATA_FILE_NAME + 1) == 0) {
+      Serial.println("Found metadata file. Skipping.");
+      file.close();
+      file = root.openNextFile();
+      continue;
+    }
+
+    bool isUsed = false;
+    for (JsonObject animation : metadata) {
+      JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
+      for (const char* frameID : frameOrder) {
+        char expectedFilePath[32];
+        constructFilePath(expectedFilePath, frameID, sizeof(expectedFilePath));
+
+        // compare without the leading slash in expectedFilePath
+        if (strcmp(fileName, expectedFilePath + 1) == 0) {
+          isUsed = true;
+          break;
+        }
+      }
+      if (isUsed) break;
+    }
+
+    if (!isUsed) {
+      // Delete the file using the file name (with the leading slash)
+      char fullPath[32];
+      snprintf(fullPath, sizeof(fullPath), "/%s", fileName);
+
+      if (SPIFFS.remove(fullPath)) {
+        Serial.print("Successfully deleted unused frame file: ");
+      } else {
+        Serial.print("Failed to delete file: ");
+      }
+      Serial.println(fullPath);
+    }
+
+    file.close();
+    file = root.openNextFile();
+  }
+  root.close();
 }
 
 // write the frame data buffer to a file at the given path
@@ -339,8 +384,8 @@ void setup() {
   }
 
   //SPIFFS.format();
-  //writeTestFile();
-  //listSPIFFSFiles();
+  writeTestFile();
+  listSPIFFSFiles();
 
   connectToWifi();
   HTTPClient http;
@@ -352,6 +397,7 @@ void setup() {
     fetchedNewData = fetchAndInitMetadata(http);
     if (fetchedNewData) {
       // successfully fetched new metadata. now fetch and store frame data
+      cleanupUnusedFiles();
       printAnimationMetadata();
       for (JsonObject animation : metadata) {
         const char* animationID = animation["animationID"].as<const char*>();
