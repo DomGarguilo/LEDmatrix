@@ -25,7 +25,7 @@
 #define METADATA_FILE_NAME "/metadata.json"
 
 DynamicJsonDocument metadataDoc(4096);
-JsonArray metadata = metadataDoc.to<JsonArray>();
+JsonObject jsonMetadata = metadataDoc.to<JsonObject>();
 
 uint8_t frameDataBuffer[SIZE];
 
@@ -149,11 +149,10 @@ bool loadMetadataFromFile() {
 
 // deserialize the metadata json from the stream and store it in file
 bool deserializeAndStoreMetadata(WiFiClient& stream) {
-  ReadBufferingStream bufferingStream(stream, 64);
-  DeserializationError error = deserializeJson(metadataDoc, bufferingStream);
+  DeserializationError error = deserializeJson(jsonMetadata, stream);
 
   if (error) {
-    Serial.print("deserialization of metadata from wifi stream failed: ");
+    Serial.print("deserializeJson() failed: ");
     Serial.println(error.c_str());
     return false;
   }
@@ -161,6 +160,8 @@ bool deserializeAndStoreMetadata(WiFiClient& stream) {
   saveMetadataToFile();
   return true;
 }
+
+
 
 void constructFilePath(char* filePath, const char* frameID, int bufferSize) {
   snprintf(filePath, bufferSize, "/%s.bin", frameID);
@@ -186,7 +187,7 @@ void cleanupUnusedFiles() {
     }
 
     bool isUsed = false;
-    for (JsonObject animation : metadata) {
+    for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
       JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
       for (const char* frameID : frameOrder) {
         char expectedFilePath[32];
@@ -304,7 +305,7 @@ void connectToWifi() {
 }
 
 void printAnimationMetadata() {
-  for (JsonObject animation : metadata) {
+  for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
     const char* animationID = animation["animationID"].as<const char*>();
     int frameDuration = animation["frameDuration"];
     int repeatCount = animation["repeatCount"];
@@ -399,7 +400,7 @@ void setup() {
       // successfully fetched new metadata. now fetch and store frame data
       cleanupUnusedFiles();
       printAnimationMetadata();
-      for (JsonObject animation : metadata) {
+      for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
         const char* animationID = animation["animationID"].as<const char*>();
         Serial.print("Saving to SPIFFS: ");
         Serial.println(animationID);
@@ -439,11 +440,11 @@ int frameDuration;                 // duration of each frame
 void loop() {
   unsigned long currentMillis = millis();
 
-  if (currentAnimationIndex < metadata.size()) {
+  if (currentAnimationIndex < jsonMetadata["metadata"].as<JsonArray>().size()) {
     // If we're still within the range of animations
     if (currentFrameIndex == 0) {
       // If this is the first frame of the animation, load the animation
-      currentAnimation = metadata[currentAnimationIndex];
+      currentAnimation = jsonMetadata["metadata"].as<JsonArray>()[currentAnimationIndex];
       const char* animationID = currentAnimation["animationID"];
       totalFrames = currentAnimation["totalFrames"];
       frameDuration = currentAnimation["frameDuration"];
