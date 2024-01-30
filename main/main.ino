@@ -428,22 +428,56 @@ void setup() {
   }
 }
 
+unsigned long previousMillis = 0;  // stores last time frame was updated
+int currentFrameIndex = 0;         // index of the current frame
+int currentAnimationIndex = 0;     // index of the current animation
+JsonObject currentAnimation;       // stores the current animation
+JsonArray frameOrder;              // stores the frame order of the current animation
+int totalFrames;                   // total number of frames in the current animation
+int frameDuration;                 // duration of each frame
+
 void loop() {
-  for (JsonObject animation : metadata) {
-    const char* animationID = animation["animationID"].as<const char*>();
-    int totalFrames = animation["totalFrames"];
-    int frameDuration = animation["frameDuration"];
+  unsigned long currentMillis = millis();
 
-    Serial.print("Displaying Animation: ");
-    Serial.println(animationID);
-    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
-    for (const char* currentFrameID : frameOrder) {
-      Serial.print("Displaying Frame ID: ");
-      Serial.println(currentFrameID);
+  if (currentAnimationIndex < metadata.size()) {
+    // If we're still within the range of animations
+    if (currentFrameIndex == 0) {
+      // If this is the first frame of the animation, load the animation
+      currentAnimation = metadata[currentAnimationIndex];
+      const char* animationID = currentAnimation["animationID"];
+      totalFrames = currentAnimation["totalFrames"];
+      frameDuration = currentAnimation["frameDuration"];
 
-      readFrameFromSPIFFS(currentFrameID);
-      parseAndDisplayFrame();
-      delay(frameDuration * 3);
+      Serial.print("Displaying Animation: ");
+      Serial.println(animationID);
+
+      frameOrder = currentAnimation["frameOrder"].as<JsonArray>();
     }
+
+    if (currentMillis - previousMillis >= frameDuration * 3) {
+      // Time to show the next frame
+      if (currentFrameIndex < frameOrder.size()) {
+        // If there are more frames to display
+        const char* currentFrameID = frameOrder[currentFrameIndex];
+
+        Serial.print("Displaying Frame ID: ");
+        Serial.println(currentFrameID);
+
+        readFrameFromSPIFFS(currentFrameID);
+        parseAndDisplayFrame();
+
+        previousMillis = currentMillis;  // save the last time a frame was displayed
+        currentFrameIndex++;
+      } else {
+        // No more frames, move to the next animation
+        currentFrameIndex = 0;
+        currentAnimationIndex++;
+      }
+    }
+  } else {
+    // All animations done, reset for the next loop
+    currentAnimationIndex = 0;
   }
+
+  delay(50);
 }
