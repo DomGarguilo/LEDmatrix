@@ -32,6 +32,17 @@ uint8_t frameDataBuffer[SIZE];
 
 CRGB leds[NUM_LEDS];
 
+unsigned long previousMillis = 0;  // stores last time frame was updated
+unsigned long lastHashCheckMillis = 0;
+const unsigned long hashCheckInterval = 1 * 60 * 1000;  // 5 minute interval
+int currentFrameIndex = 0;                              // index of the current frame
+int currentAnimationIndex = 0;                          // index of the current animation
+bool animationLoaded = false;                           // flag to check if the animation details are loaded
+JsonObject currentAnimation;                            // stores the current animation
+JsonArray frameOrder;                                   // stores the frame order of the current animation
+int totalFrames;                                        // total number of frames in the current animation
+int frameDuration;                                      // duration of each frame
+
 // fetches metadata and initializes the global metadata json
 // returns true if the data was successfully fetched
 bool fetchAndInitMetadata(HTTPClient& http) {
@@ -164,6 +175,12 @@ bool deserializeAndStoreMetadata(WiFiClient& stream) {
 
 // check if the local metadata hash matches the server's hash
 bool doesLocalMetadataMatchServer(HTTPClient& http) {
+  // Check if the 'hash' key exists in the JSON object
+  if (!jsonMetadata.containsKey("hash") || jsonMetadata["hash"].isNull()) {
+    Serial.println("Hash key not found in local metadata.");
+    return false;
+  }
+
   char hashCheckURL[256];
   snprintf(hashCheckURL, sizeof(hashCheckURL), "%s%s", METADATA_HASH_URL, jsonMetadata["hash"].as<const char*>());
 
@@ -422,9 +439,8 @@ void setup() {
     Serial.println("No saved metadata available.");
   }
 
-  HTTPClient http;
-
   if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
     if (!doesLocalMetadataMatchServer(http)) {  // if metadata is not up to date, fetch new data
       Serial.println("Local metadata is out of date with server. Pulling new data.");
 
@@ -444,21 +460,13 @@ void setup() {
     } else {
       Serial.println("Metadata matches server. No need to fetch new data.");
     }
+    lastHashCheckMillis = millis();
   } else {
     Serial.println("Not connected to WiFi. Continuing offline.");
   }
 
   printAnimationMetadata();
 }
-
-unsigned long previousMillis = 0;  // stores last time frame was updated
-int currentFrameIndex = 0;         // index of the current frame
-int currentAnimationIndex = 0;     // index of the current animation
-bool animationLoaded = false;      // flag to check if the animation details are loaded
-JsonObject currentAnimation;       // stores the current animation
-JsonArray frameOrder;              // stores the frame order of the current animation
-int totalFrames;                   // total number of frames in the current animation
-int frameDuration;                 // duration of each frame
 
 void loop() {
   unsigned long currentMillis = millis();
@@ -504,5 +512,38 @@ void loop() {
     animationLoaded = false;
   }
 
-  delay(50);
+  // Periodically check metadata hash
+  if (millis() - lastHashCheckMillis >= hashCheckInterval) {
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+
+      // TODO this pattern repeated in setup. refactor
+      if (!doesLocalMetadataMatchServer(http)) {
+        Serial.println("Local metadata is out of date. Updating...");
+        fetchAndInitMetadata(http);
+        cleanupUnusedFiles();
+
+        // fetch frame data for each frame in the metadata
+        for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
+          const char* animationID = animation["animationID"].as<const char*>();
+          Serial.print("Saving to SPIFFS: ");
+          Serial.println(animationID);
+          JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
+          for (const char* frameID : frameOrder) {
+            fetchAndStoreFrameData(http, frameID);
+          }
+        }
+
+        // Reset animation parameters if new metadata is fetched
+        currentAnimationIndex = 0;
+        currentFrameIndex = 0;
+        animationLoaded = false;
+      } else {
+        Serial.println("Local metadata is up to date.");
+      }
+    }
+    lastHashCheckMillis = millis();
+  } else {
+    delay(50);  // small delay to avoid hammering cpu. skip if we fetch new data
+  }
 }
