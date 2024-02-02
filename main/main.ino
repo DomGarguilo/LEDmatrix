@@ -21,6 +21,7 @@
 #define SIZE (NUM_LEDS * BYTES_PER_PIXEL)
 
 #define METADATA_URL SERVER_BASE_URL "metadata"
+#define METADATA_HASH_URL SERVER_BASE_URL "metadata/hash/"
 #define FRAME_DATA_BASE_URL SERVER_BASE_URL "frameData/"
 #define METADATA_FILE_NAME "/metadata.json"
 
@@ -161,6 +162,28 @@ bool deserializeAndStoreMetadata(WiFiClient& stream) {
   return true;
 }
 
+// check if the local metadata hash matches the server's hash
+bool doesLocalMetadataMatchServer(HTTPClient& http) {
+  char hashCheckURL[256];
+  snprintf(hashCheckURL, sizeof(hashCheckURL), "%s%s", METADATA_HASH_URL, jsonMetadata["hash"].as<const char*>());
+
+  http.begin(hashCheckURL);
+  int httpCode = http.GET();
+
+  if (httpCode == HTTP_CODE_OK) {
+    DynamicJsonDocument hashResponseDoc(1024);
+    deserializeJson(hashResponseDoc, http.getStream());
+    bool hashesMatch = hashResponseDoc["hashesMatch"].as<bool>();
+    http.end();
+    return hashesMatch;
+  } else {
+    Serial.print("Failed to get hash response, HTTP code: ");
+    Serial.println(httpCode);
+  }
+
+  http.end();
+  return false;  // false if request fails or hashes don't match
+}
 
 
 void constructFilePath(char* filePath, const char* frameID, int bufferSize) {
@@ -389,17 +412,26 @@ void setup() {
   listSPIFFSFiles();
 
   connectToWifi();
+
+  Serial.println("Loading metadata from saved files.");
+  if (SPIFFS.exists(METADATA_FILE_NAME)) {
+    if (!loadMetadataFromFile()) {
+      Serial.println("Failed to load metadata from file");
+    }
+  } else {
+    Serial.println("No saved metadata available.");
+  }
+
   HTTPClient http;
 
-  printAnimationMetadata();
-
-  bool fetchedNewData = false;
   if (WiFi.status() == WL_CONNECTED) {
-    fetchedNewData = fetchAndInitMetadata(http);
-    if (fetchedNewData) {
-      // successfully fetched new metadata. now fetch and store frame data
+    if (!doesLocalMetadataMatchServer(http)) {  // if metadata is not up to date, fetch new data
+      Serial.println("Local metadata is out of date with server. Pulling new data.");
+
+      fetchAndInitMetadata(http);
       cleanupUnusedFiles();
-      printAnimationMetadata();
+
+      // fetch frame data for each frame in the metadata
       for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
         const char* animationID = animation["animationID"].as<const char*>();
         Serial.print("Saving to SPIFFS: ");
@@ -410,28 +442,19 @@ void setup() {
         }
       }
     } else {
-      Serial.println("Could not fetch new metadata from server.");
+      Serial.println("Metadata matches server. No need to fetch new data.");
     }
   } else {
-    Serial.println("Couldn't connect to WiFi.");
+    Serial.println("Not connected to WiFi. Continuing offline.");
   }
 
-  // If failed to fetch new data, use saved metadata
-  if (!fetchedNewData) {
-    Serial.println("Loading animations from saved files (hopefully)");
-    if (SPIFFS.exists(METADATA_FILE_NAME)) {
-      loadMetadataFromFile();
-    } else {
-      Serial.println("No saved metadata available.");
-      // Handle the case where no saved data is available
-      // maybe restart the esp32 or display error frame
-    }
-  }
+  printAnimationMetadata();
 }
 
 unsigned long previousMillis = 0;  // stores last time frame was updated
 int currentFrameIndex = 0;         // index of the current frame
 int currentAnimationIndex = 0;     // index of the current animation
+bool animationLoaded = false;      // flag to check if the animation details are loaded
 JsonObject currentAnimation;       // stores the current animation
 JsonArray frameOrder;              // stores the frame order of the current animation
 int totalFrames;                   // total number of frames in the current animation
@@ -441,9 +464,7 @@ void loop() {
   unsigned long currentMillis = millis();
 
   if (currentAnimationIndex < jsonMetadata["metadata"].as<JsonArray>().size()) {
-    // If we're still within the range of animations
-    if (currentFrameIndex == 0) {
-      // If this is the first frame of the animation, load the animation
+    if (!animationLoaded) {  // If this is the first frame of the animation, load the animation
       currentAnimation = jsonMetadata["metadata"].as<JsonArray>()[currentAnimationIndex];
       const char* animationID = currentAnimation["animationID"];
       totalFrames = currentAnimation["totalFrames"];
@@ -453,6 +474,7 @@ void loop() {
       Serial.println(animationID);
 
       frameOrder = currentAnimation["frameOrder"].as<JsonArray>();
+      animationLoaded = true;
     }
 
     if (currentMillis - previousMillis >= frameDuration * 3) {
@@ -473,11 +495,13 @@ void loop() {
         // No more frames, move to the next animation
         currentFrameIndex = 0;
         currentAnimationIndex++;
+        animationLoaded = false;
       }
     }
   } else {
     // All animations done, reset for the next loop
     currentAnimationIndex = 0;
+    animationLoaded = false;
   }
 
   delay(50);
