@@ -161,10 +161,11 @@ bool loadMetadataFromFile() {
 
 // deserialize the metadata json from the stream and store it in file
 bool deserializeAndStoreMetadata(WiFiClient& stream) {
-  DeserializationError error = deserializeJson(jsonMetadata, stream);
+  ReadBufferingStream bufferingStream(stream, 64);
+  DeserializationError error = deserializeJson(metadataDoc, bufferingStream);
 
   if (error) {
-    Serial.print("deserializeJson() failed: ");
+    Serial.print("deserialization of metadata from wifi streamfailed: ");
     Serial.println(error.c_str());
     return false;
   }
