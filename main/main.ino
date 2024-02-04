@@ -32,6 +32,16 @@ uint8_t frameDataBuffer[SIZE];
 
 CRGB leds[NUM_LEDS];
 
+enum WiFiConnectionState {
+  DISCONNECTED,
+  CONNECTING,
+  CONNECTED
+};
+
+WiFiConnectionState wifiState = DISCONNECTED;
+unsigned long lastWiFiAttemptMillis = 0;
+const unsigned long wifiAttemptInterval = 20 * 1000;
+
 unsigned long previousMillis = 0;  // stores last time frame was updated
 unsigned long lastHashCheckMillis = 0;
 const unsigned long hashCheckInterval = 1 * 60 * 1000;  // 5 minute interval
@@ -42,6 +52,38 @@ JsonObject currentAnimation;                            // stores the current an
 JsonArray frameOrder;                                   // stores the frame order of the current animation
 int totalFrames;                                        // total number of frames in the current animation
 int frameDuration;                                      // duration of each frame
+
+
+void checkOrConnectWifi() {
+  switch (wifiState) {
+    case DISCONNECTED:
+      // Start connecting
+      WiFi.begin(SSID, WIFI_PASSWORD);
+      wifiState = CONNECTING;
+      lastWiFiAttemptMillis = millis();
+      Serial.println("Attempting to connect to WiFi...");
+      break;
+    case CONNECTING:
+      // Check if connected
+      if (WiFi.status() == WL_CONNECTED) {
+        wifiState = CONNECTED;
+        Serial.println("Connected to WiFi!");
+        Serial.print("IP Address: ");
+        Serial.println(WiFi.localIP());
+      } else if (millis() - lastWiFiAttemptMillis > wifiAttemptInterval) {
+        // Retry after interval
+        wifiState = DISCONNECTED;
+      }
+      break;
+    case CONNECTED:
+      // Check if still connected
+      if (WiFi.status() != WL_CONNECTED) {
+        wifiState = DISCONNECTED;
+        Serial.println("WiFi connection lost. Attempting to reconnect...");
+      }
+      break;
+  }
+}
 
 // fetches metadata and initializes the global metadata json
 // returns true if the data was successfully fetched
@@ -479,7 +521,6 @@ void setup() {
 }
 
 void loop() {
-  unsigned long currentMillis = millis();
 
   if (currentAnimationIndex < jsonMetadata["metadata"].as<JsonArray>().size()) {
     if (!animationLoaded) {  // If this is the first frame of the animation, load the animation
@@ -495,7 +536,7 @@ void loop() {
       animationLoaded = true;
     }
 
-    if (currentMillis - previousMillis >= frameDuration * 3) {
+    if (millis() - previousMillis >= frameDuration * 3) {
       // Time to show the next frame
       if (currentFrameIndex < frameOrder.size()) {
         // If there are more frames to display
@@ -507,7 +548,7 @@ void loop() {
         readFrameFromSPIFFS(currentFrameID);
         parseAndDisplayFrame();
 
-        previousMillis = currentMillis;  // save the last time a frame was displayed
+        previousMillis = millis();  // save the last time a frame was displayed
         currentFrameIndex++;
       } else {
         // No more frames, move to the next animation
@@ -522,11 +563,12 @@ void loop() {
     animationLoaded = false;
   }
 
-  // Periodically check metadata hash
   if (millis() - lastHashCheckMillis >= hashCheckInterval) {
-    if (WiFi.status() == WL_CONNECTED) {
-      HTTPClient http;
+    checkOrConnectWifi();
 
+    // Proceed with metadata check if connected to WiFi
+    if (wifiState == CONNECTED) {
+      HTTPClient http;
       if (!doesLocalMetadataMatchServer(http)) {
         Serial.println("Local metadata is out of date. Updating...");
         fetchMetadataAndFrames(http);
@@ -538,8 +580,8 @@ void loop() {
       } else {
         Serial.println("Local metadata is up to date.");
       }
+      lastHashCheckMillis = millis();
     }
-    lastHashCheckMillis = millis();
   } else {
     delay(50);  // small delay to avoid hammering cpu. skip if we fetch new data
   }
