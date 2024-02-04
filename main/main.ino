@@ -466,7 +466,7 @@ void setup() {
     HTTPClient http;
     if (!doesLocalMetadataMatchServer(http)) {  // if metadata is not up to date, fetch new data
       Serial.println("Local metadata is out of date with server. Pulling new data.");
-      fetchNewData(http);
+      fetchMetadataAndFrames(http);
     } else {
       Serial.println("Metadata matches server. No need to fetch new data.");
     }
@@ -529,7 +529,7 @@ void loop() {
 
       if (!doesLocalMetadataMatchServer(http)) {
         Serial.println("Local metadata is out of date. Updating...");
-        fetchNewData(http);
+        fetchMetadataAndFrames(http);
 
         // Reset animation parameters if new metadata is fetched
         currentAnimationIndex = 0;
