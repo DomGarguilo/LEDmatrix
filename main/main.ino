@@ -137,6 +137,28 @@ void saveMetadataToFile() {
   }
 }
 
+// fetch new metadata, cleanup files, then fetch new frame data
+bool fetchMetadataAndFrames(HTTPClient& http) {
+  if (!fetchAndInitMetadata(http)) {
+    Serial.println("Failed to fetch metadata.");
+    return false;
+  }
+
+  cleanupUnusedFiles();
+
+  // fetch frame data for each frame in the metadata
+  for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
+    const char* animationID = animation["animationID"].as<const char*>();
+    Serial.print("Saving to SPIFFS: ");
+    Serial.println(animationID);
+    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
+    for (const char* frameID : frameOrder) {
+      fetchAndStoreFrameData(http, frameID);
+    }
+  }
+  return true;
+}
+
 bool loadMetadataFromFile() {
   File file = SPIFFS.open(METADATA_FILE_NAME, FILE_READ);
   if (!file) {
@@ -444,20 +466,7 @@ void setup() {
     HTTPClient http;
     if (!doesLocalMetadataMatchServer(http)) {  // if metadata is not up to date, fetch new data
       Serial.println("Local metadata is out of date with server. Pulling new data.");
-
-      fetchAndInitMetadata(http);
-      cleanupUnusedFiles();
-
-      // fetch frame data for each frame in the metadata
-      for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
-        const char* animationID = animation["animationID"].as<const char*>();
-        Serial.print("Saving to SPIFFS: ");
-        Serial.println(animationID);
-        JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
-        for (const char* frameID : frameOrder) {
-          fetchAndStoreFrameData(http, frameID);
-        }
-      }
+      fetchNewData(http);
     } else {
       Serial.println("Metadata matches server. No need to fetch new data.");
     }
@@ -518,22 +527,9 @@ void loop() {
     if (WiFi.status() == WL_CONNECTED) {
       HTTPClient http;
 
-      // TODO this pattern repeated in setup. refactor
       if (!doesLocalMetadataMatchServer(http)) {
         Serial.println("Local metadata is out of date. Updating...");
-        fetchAndInitMetadata(http);
-        cleanupUnusedFiles();
-
-        // fetch frame data for each frame in the metadata
-        for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
-          const char* animationID = animation["animationID"].as<const char*>();
-          Serial.print("Saving to SPIFFS: ");
-          Serial.println(animationID);
-          JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
-          for (const char* frameID : frameOrder) {
-            fetchAndStoreFrameData(http, frameID);
-          }
-        }
+        fetchNewData(http);
 
         // Reset animation parameters if new metadata is fetched
         currentAnimationIndex = 0;
