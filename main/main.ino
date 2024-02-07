@@ -165,8 +165,23 @@ void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
   Serial.println("Failed to fetch frame data after retries.");
 }
 
+// illuminate the LEDs in a loading pattern depending on the progress of the firmware upgrade
 void updateProgress(size_t prg, size_t sz) {
-  Serial.printf("%u%% ", (prg * 100) / sz);
+  uint8_t progressPercent = (prg * 100) / sz;
+  Serial.printf("%u%% ", progressPercent);
+
+  uint16_t numLedsToLight = (progressPercent * NUM_LEDS) / 100;
+
+  // Light up the LEDs accordingly
+  for (int i = 0; i < NUM_LEDS; i++) {
+    if (i < numLedsToLight) {
+      leds[i] = CRGB::Green;
+    } else {
+      leds[i] = CRGB::Black;
+    }
+  }
+
+  FastLED.show();
 }
 
 // uses the given firmware version to check if there is a firmware update available
