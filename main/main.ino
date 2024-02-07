@@ -28,7 +28,7 @@
 
 #define METADATA_FILE_NAME "/metadata.json"
 
-#define FIRMWARE_VERSION "0.0.4"
+#define FIRMWARE_VERSION "0.0.1"
 
 DynamicJsonDocument metadataDoc(4096);
 JsonObject jsonMetadata = metadataDoc.to<JsonObject>();
@@ -44,19 +44,22 @@ enum WiFiConnectionState {
 };
 
 WiFiConnectionState wifiState = DISCONNECTED;
+
 unsigned long lastWiFiAttemptMillis = 0;
 const unsigned long wifiAttemptInterval = 20 * 1000;
+unsigned long lastFirmwareCheckMillis = 0;
+const unsigned long firmwareCheckInterval = 60 * 60 * 1000;
+unsigned long lastHashCheckMillis = 0;
+const unsigned long hashCheckInterval = 5 * 60 * 1000;  // 5 minute interval
 
 unsigned long previousMillis = 0;  // stores last time frame was updated
-unsigned long lastHashCheckMillis = 0;
-const unsigned long hashCheckInterval = 1 * 60 * 1000;  // 5 minute interval
-int currentFrameIndex = 0;                              // index of the current frame
-int currentAnimationIndex = 0;                          // index of the current animation
-bool animationLoaded = false;                           // flag to check if the animation details are loaded
-JsonObject currentAnimation;                            // stores the current animation
-JsonArray frameOrder;                                   // stores the frame order of the current animation
-int totalFrames;                                        // total number of frames in the current animation
-int frameDuration;                                      // duration of each frame
+int currentFrameIndex = 0;         // index of the current frame
+int currentAnimationIndex = 0;     // index of the current animation
+bool animationLoaded = false;      // flag to check if the animation details are loaded
+JsonObject currentAnimation;       // stores the current animation
+JsonArray frameOrder;              // stores the frame order of the current animation
+int totalFrames;                   // total number of frames in the current animation
+int frameDuration;                 // duration of each frame
 
 
 void checkOrConnectWifi() {
@@ -563,7 +566,10 @@ void setup() {
 
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
+
     checkOrUpdateFirmware(http);
+    lastFirmwareCheckMillis = millis();
+
     if (!doesLocalMetadataMatchServer(http)) {  // if metadata is not up to date, fetch new data
       Serial.println("Local metadata is out of date with server. Pulling new data.");
       fetchMetadataAndFrames(http);
@@ -621,7 +627,15 @@ void loop() {
     animationLoaded = false;
   }
 
-  if (millis() - lastHashCheckMillis >= hashCheckInterval) {
+  if (millis() - lastFirmwareCheckMillis >= firmwareCheckInterval) {
+    checkOrConnectWifi();
+
+    if (wifiState == CONNECTED) {
+      HTTPClient http;
+      checkOrUpdateFirmware(http);
+      lastFirmwareCheckMillis = millis();
+    }
+  } else if (millis() - lastHashCheckMillis >= hashCheckInterval) {
     checkOrConnectWifi();
 
     // Proceed with metadata check if connected to WiFi
