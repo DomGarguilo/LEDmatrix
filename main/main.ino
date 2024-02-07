@@ -5,6 +5,7 @@
 #include <FS.h>
 #include <SPIFFS.h>
 #include <StreamUtils.h>
+#include <Update.h>
 #include "secrets.h"
 
 // board setup
@@ -23,7 +24,11 @@
 #define METADATA_URL SERVER_BASE_URL "metadata"
 #define METADATA_HASH_URL SERVER_BASE_URL "metadata/hash/"
 #define FRAME_DATA_BASE_URL SERVER_BASE_URL "frameData/"
+#define FIRMWARE_URL SERVER_BASE_URL "firmware/"
+
 #define METADATA_FILE_NAME "/metadata.json"
+
+#define FIRMWARE_VERSION "0.0.1"
 
 DynamicJsonDocument metadataDoc(4096);
 JsonObject jsonMetadata = metadataDoc.to<JsonObject>();
@@ -39,19 +44,22 @@ enum WiFiConnectionState {
 };
 
 WiFiConnectionState wifiState = DISCONNECTED;
+
 unsigned long lastWiFiAttemptMillis = 0;
 const unsigned long wifiAttemptInterval = 20 * 1000;
+unsigned long lastFirmwareCheckMillis = 0;
+const unsigned long firmwareCheckInterval = 60 * 60 * 1000;
+unsigned long lastHashCheckMillis = 0;
+const unsigned long hashCheckInterval = 5 * 60 * 1000;  // 5 minute interval
 
 unsigned long previousMillis = 0;  // stores last time frame was updated
-unsigned long lastHashCheckMillis = 0;
-const unsigned long hashCheckInterval = 1 * 60 * 1000;  // 5 minute interval
-int currentFrameIndex = 0;                              // index of the current frame
-int currentAnimationIndex = 0;                          // index of the current animation
-bool animationLoaded = false;                           // flag to check if the animation details are loaded
-JsonObject currentAnimation;                            // stores the current animation
-JsonArray frameOrder;                                   // stores the frame order of the current animation
-int totalFrames;                                        // total number of frames in the current animation
-int frameDuration;                                      // duration of each frame
+int currentFrameIndex = 0;         // index of the current frame
+int currentAnimationIndex = 0;     // index of the current animation
+bool animationLoaded = false;      // flag to check if the animation details are loaded
+JsonObject currentAnimation;       // stores the current animation
+JsonArray frameOrder;              // stores the frame order of the current animation
+int totalFrames;                   // total number of frames in the current animation
+int frameDuration;                 // duration of each frame
 
 
 void checkOrConnectWifi() {
@@ -155,6 +163,58 @@ void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
     delay(1000);
   }
   Serial.println("Failed to fetch frame data after retries.");
+}
+
+void updateProgress(size_t prg, size_t sz) {
+  Serial.printf("%u%% ", (prg * 100) / sz);
+}
+
+// uses the given firmware version to check if there is a firmware update available
+void checkOrUpdateFirmware(HTTPClient& http) {
+  char versionCheckURL[256];
+  snprintf(versionCheckURL, sizeof(versionCheckURL), "%s%s", FIRMWARE_URL, FIRMWARE_VERSION);
+
+  Serial.print("Checking against version: ");
+  Serial.println(FIRMWARE_VERSION);
+
+  http.begin(versionCheckURL);
+  int httpCode = http.GET();
+
+  if (httpCode == 200) {
+    Serial.println("Firmware update available!");
+
+    Update.onProgress(updateProgress);  // Set the progress callback
+
+    size_t contentLength = http.getSize();
+    bool canBegin = Update.begin(contentLength);
+
+    if (canBegin) {
+      Serial.println("Starting firmware update");
+      WiFiClient* client = http.getStreamPtr();
+      size_t written = Update.writeStream(*client);
+
+      if (written == contentLength) {
+        Serial.println("Update successfully completed. Rebooting...");
+        Update.end();
+        ESP.restart();
+      } else {
+        Serial.println("Update failed.");
+        Update.abort();
+      }
+    } else {
+      Serial.println("Not enough space to begin firmware update");
+    }
+  } else if (httpCode == 204) {
+    Serial.println("Firmware is up to date");
+  } else if (httpCode == 501) {
+    Serial.println("No firmware available on server.");
+  } else if (httpCode == 502) {
+    Serial.println("Error reading firmware file on server.");
+  } else {
+    Serial.print("Failed to check firmware version, HTTP code: ");
+    Serial.println(httpCode);
+  }
+  http.end();
 }
 
 void saveMetadataToFile() {
@@ -506,6 +566,10 @@ void setup() {
 
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
+
+    checkOrUpdateFirmware(http);
+    lastFirmwareCheckMillis = millis();
+
     if (!doesLocalMetadataMatchServer(http)) {  // if metadata is not up to date, fetch new data
       Serial.println("Local metadata is out of date with server. Pulling new data.");
       fetchMetadataAndFrames(http);
@@ -563,7 +627,15 @@ void loop() {
     animationLoaded = false;
   }
 
-  if (millis() - lastHashCheckMillis >= hashCheckInterval) {
+  if (millis() - lastFirmwareCheckMillis >= firmwareCheckInterval) {
+    checkOrConnectWifi();
+
+    if (wifiState == CONNECTED) {
+      HTTPClient http;
+      checkOrUpdateFirmware(http);
+      lastFirmwareCheckMillis = millis();
+    }
+  } else if (millis() - lastHashCheckMillis >= hashCheckInterval) {
     checkOrConnectWifi();
 
     // Proceed with metadata check if connected to WiFi
