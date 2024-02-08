@@ -28,7 +28,7 @@
 
 #define METADATA_FILE_NAME "/metadata.json"
 
-#define FIRMWARE_VERSION "0.0.1"
+#define FIRMWARE_VERSION "0.0.2"
 
 DynamicJsonDocument metadataDoc(4096);
 JsonObject jsonMetadata = metadataDoc.to<JsonObject>();
@@ -61,6 +61,8 @@ JsonArray frameOrder;              // stores the frame order of the current anim
 int totalFrames;                   // total number of frames in the current animation
 int frameDuration;                 // duration of each frame
 
+int totalProgressSteps = 0;      // You'll set this based on the total number of frames in all animations
+int progressStepsCompleted = 0;  // Increment this as each frame is fetched and saved
 
 void checkOrConnectWifi() {
   switch (wifiState) {
@@ -98,7 +100,7 @@ void checkOrConnectWifi() {
 bool fetchAndInitMetadata(HTTPClient& http) {
   const int maxRetries = 3;
   for (int attempt = 0; attempt < maxRetries; attempt++) {
-    http.begin(METADATA_URL);
+    http.begin(METADATA_URL, rootCACertificate);
     int httpCode = http.GET();
 
     if (httpCode == HTTP_CODE_OK) {
@@ -139,14 +141,22 @@ void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
     char url[100];
     constructFrameDataURL(url, frameID, sizeof(url));
 
-    http.begin(url);
+    http.begin(url, rootCACertificate);
     int httpCode = http.GET();
 
     if (httpCode == HTTP_CODE_OK) {
       WiFiClient* stream = http.getStreamPtr();
       int bytesRead = stream->readBytes(frameDataBuffer, SIZE);
       if (bytesRead == SIZE) {
+        progressStepsCompleted++;      // Increment for successful fetch
+        updateFrameLoadingProgress();  // Update progress for fetch completion
+
         saveFrameToSPIFFS(filePath);
+
+        progressStepsCompleted++;      // Increment again for successful save
+        updateFrameLoadingProgress();  // Update progress for save completion
+
+        http.end();
         return;
       } else {
         Serial.print("Unexpected frame size: ");
@@ -170,19 +180,38 @@ void updateProgress(size_t prg, size_t sz) {
   uint8_t progressPercent = (prg * 100) / sz;
   Serial.printf("%u%% ", progressPercent);
 
-  uint16_t numLedsToLight = (progressPercent * NUM_LEDS) / 100;
+  uint16_t numLedsToLight = (prg * NUM_LEDS) / sz;
 
   // Light up the LEDs accordingly
   for (int i = 0; i < NUM_LEDS; i++) {
-    if (i < numLedsToLight) {
-      leds[i] = CRGB::Green;
-    } else {
-      leds[i] = CRGB::Black;
-    }
+    leds[i] = i < numLedsToLight ? CRGB::Green : CRGB::Black;
   }
 
   FastLED.show();
 }
+
+void initializeFrameFetching() {
+  int totalFrames = 0;
+  for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
+    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
+    totalFrames += frameOrder.size();
+  }
+  totalProgressSteps = totalFrames * 2;
+  progressStepsCompleted = 0;
+}
+
+void updateFrameLoadingProgress() {
+  if (totalProgressSteps <= 0) return;  // Prevent division by zero
+
+  uint16_t numLedsToLight = (progressStepsCompleted * NUM_LEDS) / totalProgressSteps;
+
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = i < numLedsToLight ? CRGB::Blue : CRGB::Black;
+  }
+
+  FastLED.show();
+}
+
 
 // uses the given firmware version to check if there is a firmware update available
 void checkOrUpdateFirmware(HTTPClient& http) {
@@ -192,7 +221,7 @@ void checkOrUpdateFirmware(HTTPClient& http) {
   Serial.print("Checking against version: ");
   Serial.println(FIRMWARE_VERSION);
 
-  http.begin(versionCheckURL);
+  http.begin(versionCheckURL, rootCACertificate);
   int httpCode = http.GET();
 
   if (httpCode == 200) {
@@ -263,6 +292,8 @@ bool fetchMetadataAndFrames(HTTPClient& http) {
 
   cleanupUnusedFiles();
 
+  initializeFrameFetching();
+
   // fetch frame data for each frame in the metadata
   for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
     const char* animationID = animation["animationID"].as<const char*>();
@@ -324,7 +355,7 @@ bool doesLocalMetadataMatchServer(HTTPClient& http) {
   char hashCheckURL[256];
   snprintf(hashCheckURL, sizeof(hashCheckURL), "%s%s", METADATA_HASH_URL, jsonMetadata["hash"].as<const char*>());
 
-  http.begin(hashCheckURL);
+  http.begin(hashCheckURL, rootCACertificate);
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK) {
