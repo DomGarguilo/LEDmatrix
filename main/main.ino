@@ -6,6 +6,7 @@
 #include <SPIFFS.h>
 #include <StreamUtils.h>
 #include <Update.h>
+#include <WiFiClientSecure.h>
 #include "secrets.h"
 
 // board setup
@@ -95,10 +96,11 @@ void checkOrConnectWifi() {
 
 // fetches metadata and initializes the global metadata json
 // returns true if the data was successfully fetched
-bool fetchAndInitMetadata(HTTPClient& http) {
+bool fetchAndInitMetadata(HTTPClient& http, WiFiClientSecure& client) {
   const int maxRetries = 3;
   for (int attempt = 0; attempt < maxRetries; attempt++) {
-    http.begin(METADATA_URL);
+
+    http.begin(client, METADATA_URL);
     int httpCode = http.GET();
 
     if (httpCode == HTTP_CODE_OK) {
@@ -124,7 +126,7 @@ void constructFrameDataURL(char* url, const char* frameID, int bufferSize) {
 }
 
 // Fetches frame data for a given frame ID and stores it in SPIFFS
-void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
+void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const char* frameID) {
   const int maxRetries = 3;
   char filePath[32];  // max filename length is 32
   constructFilePath(filePath, frameID, sizeof(filePath));
@@ -138,8 +140,7 @@ void fetchAndStoreFrameData(HTTPClient& http, const char* frameID) {
   for (int attempt = 0; attempt < maxRetries; attempt++) {
     char url[100];
     constructFrameDataURL(url, frameID, sizeof(url));
-
-    http.begin(url);
+    http.begin(client, url);
     int httpCode = http.GET();
 
     if (httpCode == HTTP_CODE_OK) {
@@ -185,14 +186,14 @@ void updateProgress(size_t prg, size_t sz) {
 }
 
 // uses the given firmware version to check if there is a firmware update available
-void checkOrUpdateFirmware(HTTPClient& http) {
+void checkOrUpdateFirmware(HTTPClient& http, WiFiClientSecure& client) {
   char versionCheckURL[256];
   snprintf(versionCheckURL, sizeof(versionCheckURL), "%s%s", FIRMWARE_URL, FIRMWARE_VERSION);
 
   Serial.print("Checking against version: ");
   Serial.println(FIRMWARE_VERSION);
 
-  http.begin(versionCheckURL);
+  http.begin(client, versionCheckURL);
   int httpCode = http.GET();
 
   if (httpCode == 200) {
@@ -255,8 +256,8 @@ void saveMetadataToFile() {
 }
 
 // fetch new metadata, cleanup files, then fetch new frame data
-bool fetchMetadataAndFrames(HTTPClient& http) {
-  if (!fetchAndInitMetadata(http)) {
+bool fetchMetadataAndFrames(HTTPClient& http, WiFiClientSecure& client) {
+  if (!fetchAndInitMetadata(http, client)) {
     Serial.println("Failed to fetch metadata.");
     return false;
   }
@@ -270,7 +271,7 @@ bool fetchMetadataAndFrames(HTTPClient& http) {
     Serial.println(animationID);
     JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
     for (const char* frameID : frameOrder) {
-      fetchAndStoreFrameData(http, frameID);
+      fetchAndStoreFrameData(http, client, frameID);
     }
   }
   return true;
@@ -314,7 +315,7 @@ bool deserializeAndStoreMetadata(WiFiClient& stream) {
 }
 
 // check if the local metadata hash matches the server's hash
-bool doesLocalMetadataMatchServer(HTTPClient& http) {
+bool doesLocalMetadataMatchServer(HTTPClient& http, WiFiClientSecure& client) {
   // Check if the 'hash' key exists in the JSON object
   if (!jsonMetadata.containsKey("hash") || jsonMetadata["hash"].isNull()) {
     Serial.println("Hash key not found in local metadata.");
@@ -324,7 +325,7 @@ bool doesLocalMetadataMatchServer(HTTPClient& http) {
   char hashCheckURL[256];
   snprintf(hashCheckURL, sizeof(hashCheckURL), "%s%s", METADATA_HASH_URL, jsonMetadata["hash"].as<const char*>());
 
-  http.begin(hashCheckURL);
+  http.begin(client, hashCheckURL);
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK) {
@@ -581,13 +582,16 @@ void setup() {
 
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
+    http.useHTTP10(true);
+    WiFiClientSecure client;
+    client.setInsecure();
 
-    checkOrUpdateFirmware(http);
+    checkOrUpdateFirmware(http, client);
     lastFirmwareCheckMillis = millis();
 
-    if (!doesLocalMetadataMatchServer(http)) {  // if metadata is not up to date, fetch new data
+    if (!doesLocalMetadataMatchServer(http, client)) {  // if metadata is not up to date, fetch new data
       Serial.println("Local metadata is out of date with server. Pulling new data.");
-      fetchMetadataAndFrames(http);
+      fetchMetadataAndFrames(http, client);
     } else {
       Serial.println("Metadata matches server. No need to fetch new data.");
     }
@@ -647,7 +651,10 @@ void loop() {
 
     if (wifiState == CONNECTED) {
       HTTPClient http;
-      checkOrUpdateFirmware(http);
+      http.useHTTP10(true);
+      WiFiClientSecure client;
+      client.setInsecure();
+      checkOrUpdateFirmware(http, client);
       lastFirmwareCheckMillis = millis();
     }
   } else if (millis() - lastHashCheckMillis >= hashCheckInterval) {
@@ -656,9 +663,12 @@ void loop() {
     // Proceed with metadata check if connected to WiFi
     if (wifiState == CONNECTED) {
       HTTPClient http;
-      if (!doesLocalMetadataMatchServer(http)) {
+      http.useHTTP10(true);
+      WiFiClientSecure client;
+      client.setInsecure();
+      if (!doesLocalMetadataMatchServer(http, client)) {
         Serial.println("Local metadata is out of date. Updating...");
-        fetchMetadataAndFrames(http);
+        fetchMetadataAndFrames(http, client);
 
         // Reset animation parameters if new metadata is fetched
         currentAnimationIndex = 0;
