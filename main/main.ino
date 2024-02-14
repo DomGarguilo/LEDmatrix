@@ -394,8 +394,6 @@ void cleanupUnusedFiles() {
   size_t processedFiles = 0;
 
   while (file) {
-    delay(100);  // Just for testing, adds a 100ms delay to make progress visible.
-
     const char* fileName = file.name();
     Serial.print("Assessing file for deletion: ");
     Serial.println(fileName);
