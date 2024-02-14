@@ -62,6 +62,10 @@ JsonArray frameOrder;              // stores the frame order of the current anim
 int totalFrames;                   // total number of frames in the current animation
 int frameDuration;                 // duration of each frame
 
+// used to track the progress of different processes in order to display loading animations
+size_t progressStepsCompleted = 0;
+size_t totalProgressSteps = 0;
+
 
 void checkOrConnectWifi() {
   switch (wifiState) {
@@ -147,7 +151,17 @@ void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const ch
       WiFiClient* stream = http.getStreamPtr();
       int bytesRead = stream->readBytes(frameDataBuffer, SIZE);
       if (bytesRead == SIZE) {
+        // Fetch completed successfully, increment steps and display progress
+        progressStepsCompleted++;
+        updateAndDisplayProgress(progressStepsCompleted, totalProgressSteps, CRGB::Blue);
+
         saveFrameToSPIFFS(filePath);
+        // After saving, increment steps and display progress again
+        progressStepsCompleted++;
+        updateAndDisplayProgress(progressStepsCompleted, totalProgressSteps, CRGB::Blue);
+
+
+        http.end();
         return;
       } else {
         Serial.print("Unexpected frame size: ");
@@ -166,23 +180,14 @@ void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const ch
   Serial.println("Failed to fetch frame data after retries.");
 }
 
-// illuminate the LEDs in a loading pattern depending on the progress of the firmware upgrade
-void updateProgress(size_t prg, size_t sz) {
-  uint8_t progressPercent = (prg * 100) / sz;
-  Serial.printf("%u%% ", progressPercent);
-
-  uint16_t numLedsToLight = (progressPercent * NUM_LEDS) / 100;
-
-  // Light up the LEDs accordingly
-  for (int i = 0; i < NUM_LEDS; i++) {
-    if (i < numLedsToLight) {
-      leds[i] = CRGB::Green;
-    } else {
-      leds[i] = CRGB::Black;
-    }
+void initializeFrameProgressVars() {
+  size_t totalFrames = 0;
+  for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
+    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
+    totalFrames += frameOrder.size();
   }
-
-  FastLED.show();
+  totalProgressSteps = totalFrames * 2;
+  progressStepsCompleted = 0;
 }
 
 // uses the given firmware version to check if there is a firmware update available
@@ -199,7 +204,9 @@ void checkOrUpdateFirmware(HTTPClient& http, WiFiClientSecure& client) {
   if (httpCode == 200) {
     Serial.println("Firmware update available!");
 
-    Update.onProgress(updateProgress);  // Set the progress callback
+    Update.onProgress([](size_t done, size_t total) {
+      updateAndDisplayProgress(done, total, CRGB::Green);
+    });
 
     size_t contentLength = http.getSize();
     bool canBegin = Update.begin(contentLength);
@@ -263,6 +270,8 @@ bool fetchMetadataAndFrames(HTTPClient& http, WiFiClientSecure& client) {
   }
 
   cleanupUnusedFiles();
+
+  initializeFrameProgressVars();
 
   // fetch frame data for each frame in the metadata
   for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
@@ -348,11 +357,41 @@ void constructFilePath(char* filePath, const char* frameID, int bufferSize) {
   snprintf(filePath, bufferSize, "/%s.bin", frameID);
 }
 
+void updateAndDisplayProgress(size_t processed, size_t total, CRGB color) {
+  if (total <= 0) return;  // Prevent division by zero
+
+  // Calculate progress as a percentage and number of LEDs to light
+  uint8_t progressPercent = (processed * 100) / total;
+  uint16_t numLedsToLight = (processed * NUM_LEDS) / total;
+
+  Serial.printf("%u%% ", progressPercent);
+
+  // Update LEDs based on calculated progress
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = i < numLedsToLight ? color : CRGB::Black;
+  }
+
+  FastLED.show();
+}
+
 // delete any frame files that are not refferenced in the current metadata
 // this will prevent storage from filling up
 void cleanupUnusedFiles() {
   File root = SPIFFS.open("/");
   File file = root.openNextFile();
+
+  size_t totalFiles = 0;
+  while (file) {
+    totalFiles++;
+    file.close();
+    file = root.openNextFile();
+  }
+
+  // Re-initialize to process the files after just counting the files
+  root = SPIFFS.open("/");
+  file = root.openNextFile();
+
+  size_t processedFiles = 0;
 
   while (file) {
     const char* fileName = file.name();
@@ -395,6 +434,9 @@ void cleanupUnusedFiles() {
       }
       Serial.println(fullPath);
     }
+
+    processedFiles++;
+    updateAndDisplayProgress(processedFiles, totalFiles, CRGB::Red);
 
     file.close();
     file = root.openNextFile();
@@ -566,8 +608,8 @@ void setup() {
   }
 
   //SPIFFS.format();
-  writeTestFile();
-  listSPIFFSFiles();
+  //writeTestFile();
+  //listSPIFFSFiles();
 
   connectToWifi();
 
