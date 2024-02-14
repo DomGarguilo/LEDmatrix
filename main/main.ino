@@ -29,7 +29,7 @@
 
 #define METADATA_FILE_NAME "/metadata.json"
 
-#define FIRMWARE_VERSION "0.0.2"
+#define FIRMWARE_VERSION "0.0.1"
 
 DynamicJsonDocument metadataDoc(4096);
 JsonObject jsonMetadata = metadataDoc.to<JsonObject>();
@@ -62,6 +62,7 @@ JsonArray frameOrder;              // stores the frame order of the current anim
 int totalFrames;                   // total number of frames in the current animation
 int frameDuration;                 // duration of each frame
 
+// used to track the progress of different processes in order to display loading animations
 size_t progressStepsCompleted = 0;
 size_t totalProgressSteps = 0;
 
@@ -376,22 +377,21 @@ void updateAndDisplayProgress(size_t processed, size_t total, CRGB color) {
 // delete any frame files that are not refferenced in the current metadata
 // this will prevent storage from filling up
 void cleanupUnusedFiles() {
-  // Count total files
   File root = SPIFFS.open("/");
   File file = root.openNextFile();
 
-  size_t totalFiles = 0;  // Local variable for total files count
+  size_t totalFiles = 0;
   while (file) {
     totalFiles++;
-    file.close();  // Ensure to close the file to avoid open file handle leaks
+    file.close();
     file = root.openNextFile();
   }
 
-  // Re-initialize to process the files
+  // Re-initialize to process the files after just counting the files
   root = SPIFFS.open("/");
   file = root.openNextFile();
 
-  size_t processedFiles = 0;  // Local variable for processed files count
+  size_t processedFiles = 0;
 
   while (file) {
     delay(100);  // Just for testing, adds a 100ms delay to make progress visible.
