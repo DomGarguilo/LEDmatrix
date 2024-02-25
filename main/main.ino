@@ -58,7 +58,6 @@ int currentFrameIndex = 0;         // index of the current frame
 int currentAnimationIndex = 0;     // index of the current animation
 bool animationLoaded = false;      // flag to check if the animation details are loaded
 JsonObject currentAnimation;       // stores the current animation
-JsonArray frameOrder;              // stores the frame order of the current animation
 
 // used to track the progress of different processes in order to display loading animations
 size_t progressStepsCompleted = 0;
@@ -181,8 +180,7 @@ void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const ch
 void initializeFrameProgressVars() {
   size_t totalFrames = 0;
   for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
-    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
-    totalFrames += frameOrder.size();
+    totalFrames += animation["frameOrder"].as<JsonArray>().size();
   }
   totalProgressSteps = totalFrames * 2;
   progressStepsCompleted = 0;
@@ -276,8 +274,7 @@ bool fetchMetadataAndFrames(HTTPClient& http, WiFiClientSecure& client) {
     const char* animationID = animation["animationID"].as<const char*>();
     Serial.print("Saving to SPIFFS: ");
     Serial.println(animationID);
-    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
-    for (const char* frameID : frameOrder) {
+    for (const char* frameID : animation["frameOrder"].as<JsonArray>()) {
       fetchAndStoreFrameData(http, client, frameID);
     }
   }
@@ -406,8 +403,7 @@ void cleanupUnusedFiles() {
 
     bool isUsed = false;
     for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
-      JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
-      for (const char* frameID : frameOrder) {
+      for (const char* frameID : animation["frameOrder"].as<JsonArray>()) {
         char expectedFilePath[32];
         constructFilePath(expectedFilePath, frameID, sizeof(expectedFilePath));
 
@@ -539,8 +535,7 @@ void printAnimationMetadata() {
     Serial.println(repeatCount);
 
     Serial.print("Frame Order: ");
-    JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
-    for (const char* frameID : frameOrder) {
+    for (const char* frameID : animation["frameOrder"].as<JsonArray>()) {
       Serial.print(frameID);
       Serial.print(" ");
     }
@@ -650,12 +645,12 @@ void loop() {
       Serial.print("Displaying Animation: ");
       Serial.println(animationID);
 
-      frameOrder = currentAnimation["frameOrder"].as<JsonArray>();
       animationLoaded = true;
     }
 
     if (millis() - previousMillis >= currentAnimation["frameDuration"].as<int>() * 3) {
       // Time to show the next frame
+      JsonArray frameOrder = currentAnimation["frameOrder"].as<JsonArray>();
       if (currentFrameIndex < frameOrder.size()) {
         // If there are more frames to display
         const char* currentFrameID = frameOrder[currentFrameIndex];
