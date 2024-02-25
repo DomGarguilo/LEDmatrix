@@ -59,7 +59,6 @@ int currentAnimationIndex = 0;     // index of the current animation
 bool animationLoaded = false;      // flag to check if the animation details are loaded
 JsonObject currentAnimation;       // stores the current animation
 JsonArray frameOrder;              // stores the frame order of the current animation
-int frameDuration;                 // duration of each frame
 
 // used to track the progress of different processes in order to display loading animations
 size_t progressStepsCompleted = 0;
@@ -647,7 +646,6 @@ void loop() {
     if (!animationLoaded) {  // If this is the first frame of the animation, load the animation
       currentAnimation = jsonMetadata["metadata"].as<JsonArray>()[currentAnimationIndex];
       const char* animationID = currentAnimation["animationID"];
-      frameDuration = currentAnimation["frameDuration"];
 
       Serial.print("Displaying Animation: ");
       Serial.println(animationID);
@@ -656,7 +654,7 @@ void loop() {
       animationLoaded = true;
     }
 
-    if (millis() - previousMillis >= frameDuration * 3) {
+    if (millis() - previousMillis >= currentAnimation["frameDuration"].as<int>() * 3) {
       // Time to show the next frame
       if (currentFrameIndex < frameOrder.size()) {
         // If there are more frames to display
