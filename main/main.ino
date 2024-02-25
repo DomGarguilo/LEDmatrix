@@ -29,7 +29,7 @@
 
 #define METADATA_FILE_NAME "/metadata.json"
 
-#define FIRMWARE_VERSION "0.0.1"
+#define FIRMWARE_VERSION "0.0.2"
 
 DynamicJsonDocument metadataDoc(4096);
 JsonObject jsonMetadata = metadataDoc.to<JsonObject>();
@@ -59,7 +59,6 @@ int currentAnimationIndex = 0;     // index of the current animation
 bool animationLoaded = false;      // flag to check if the animation details are loaded
 JsonObject currentAnimation;       // stores the current animation
 JsonArray frameOrder;              // stores the frame order of the current animation
-int totalFrames;                   // total number of frames in the current animation
 int frameDuration;                 // duration of each frame
 
 // used to track the progress of different processes in order to display loading animations
@@ -532,7 +531,6 @@ void printAnimationMetadata() {
     const char* animationID = animation["animationID"].as<const char*>();
     int frameDuration = animation["frameDuration"];
     int repeatCount = animation["repeatCount"];
-    int totalFrames = animation["totalFrames"];
 
     Serial.print("Animation ID: ");
     Serial.println(animationID);
@@ -540,10 +538,8 @@ void printAnimationMetadata() {
     Serial.println(frameDuration);
     Serial.print("Repeat Count: ");
     Serial.println(repeatCount);
-    Serial.print("Total Frames: ");
-    Serial.println(totalFrames);
-    Serial.print("Frame Order: ");
 
+    Serial.print("Frame Order: ");
     JsonArray frameOrder = animation["frameOrder"].as<JsonArray>();
     for (const char* frameID : frameOrder) {
       Serial.print(frameID);
@@ -651,7 +647,6 @@ void loop() {
     if (!animationLoaded) {  // If this is the first frame of the animation, load the animation
       currentAnimation = jsonMetadata["metadata"].as<JsonArray>()[currentAnimationIndex];
       const char* animationID = currentAnimation["animationID"];
-      totalFrames = currentAnimation["totalFrames"];
       frameDuration = currentAnimation["frameDuration"];
 
       Serial.print("Displaying Animation: ");
