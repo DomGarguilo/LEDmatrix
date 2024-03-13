@@ -7,6 +7,9 @@
 #include <StreamUtils.h>
 #include <Update.h>
 #include <WiFiClientSecure.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Preferences.h>
 #include "secrets.h"
 
 // board setup
@@ -30,6 +33,11 @@
 #define METADATA_FILE_NAME "/metadata.json"
 
 #define FIRMWARE_VERSION "0.0.2"
+
+WebServer server(80);
+Preferences preferences;
+const char* apSSID = "ESP32-Setup";
+const char* apPassword = "setuppassword";
 
 DynamicJsonDocument metadataDoc(4096);
 JsonObject jsonMetadata = metadataDoc.to<JsonObject>();
@@ -584,6 +592,109 @@ void writeTestFile() {
   file.close();
 }
 
+void connectToWiFi(const String& ssid, const String& password) {
+  Serial.print("Connecting to ");
+  Serial.print(ssid);
+  Serial.println(" ...");
+
+  WiFi.begin(ssid.c_str(), password.c_str());
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(1000);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.println("WiFi connected successfully.");
+
+    // Open Preferences with my-app namespace. Each application module, library, etc.
+    // has to use a namespace name to prevent key name collisions. We will open storage in
+    // RW-mode (second parameter has to be false).
+    // Note: Namespace name is limited to 15 chars.
+    preferences.begin("my-app", false);
+
+    // Put the SSID and password into storage
+    preferences.putString("ssid", ssid);
+    preferences.putString("password", password);
+
+    preferences.end();  // Close the Preferences
+  } else {
+    Serial.println("Failed to connect to WiFi. Please check your credentials");
+  }
+}
+
+void reconnectWiFi() {
+  preferences.begin("my-app", true);  // Read-only
+
+  // If preferences contain ssid and password
+  if (preferences.isKey("ssid") && preferences.isKey("password")) {
+    String ssid = preferences.getString("ssid", "");
+    String password = preferences.getString("password", "");
+
+    WiFi.begin(ssid.c_str(), password.c_str());
+
+    Serial.print("Reconnecting to WiFi...");
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      delay(1000);
+      Serial.print(".");
+      attempts++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("Reconnected.");
+    } else {
+      Serial.println("Reconnect failed.");
+    }
+  } else {
+    Serial.println("No stored WiFi credentials.");
+  }
+
+  preferences.end();  // Close the Preferences
+}
+
+void setupWebServer() {
+  WiFi.softAP(apSSID, apPassword);
+  Serial.println("Access Point Started");
+  Serial.print("AP IP address: ");
+  Serial.println(WiFi.softAPIP());
+
+  server.on("/", HTTP_GET, []() {
+    server.send(200, "text/html", "<h1>ESP32 WiFi Setup</h1><form action=\"/setup\" method=\"POST\">SSID:<br><input type=\"text\" name=\"ssid\"><br>Password:<br><input type=\"password\" name=\"password\"><br><br><input type=\"submit\" value=\"Connect\"></form>");
+  });
+
+  server.on("/setup", HTTP_POST, []() {
+    String ssid = server.arg("ssid");
+    String password = server.arg("password");
+
+    // Attempt to connect to WiFi
+    connectToWiFi(ssid, password);
+
+    // Check the connection status
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("Disconnecting from AP mode and sending success page.");
+
+      // Serve a success page
+      String successPage = "<h1>Success!</h1><p>Your matrix is now connected to " + ssid + ".</p><p>Please close this page</p>";
+      server.send(200, "text/html", successPage);
+
+      delay(5000);
+      // Disconnect AP mode as we're now connected to the WiFi
+      WiFi.softAPdisconnect(true);
+
+    } else {
+      // Serve a failure message and allow retry
+      server.send(200, "text/html", "<h1>Connection Failed</h1><p>Could not connect to " + ssid + ". Please check your credentials and try again.</p><p><a href=\"/\">Try Again</a></p>");
+    }
+  });
+
+
+  server.begin();
+}
+
 void setup() {
 
   Serial.begin(115200);
@@ -597,11 +708,15 @@ void setup() {
     return;
   }
 
-  //SPIFFS.format();
+  // Serial.println("Clearing spiffs");
+  // SPIFFS.format();
   //writeTestFile();
   //listSPIFFSFiles();
 
-  connectToWifi();
+  //reconnectWiFi();
+  if (WiFi.status() != WL_CONNECTED) {
+    setupWebServer();  // Setup web server for initial configuration if WiFi is not connected
+  }
 
   Serial.println("Loading metadata from saved files.");
   if (SPIFFS.exists(METADATA_FILE_NAME)) {
@@ -636,7 +751,7 @@ void setup() {
 }
 
 void loop() {
-
+  server.handleClient();
   if (currentAnimationIndex < jsonMetadata["metadata"].as<JsonArray>().size()) {
     if (!animationLoaded) {  // If this is the first frame of the animation, load the animation
       currentAnimation = jsonMetadata["metadata"].as<JsonArray>()[currentAnimationIndex];
