@@ -36,7 +36,7 @@
 
 WebServer server(80);
 Preferences preferences;
-const char* apSSID = "ESP32-Setup";
+const char* apSSID = "LED-Matrix-Setup";
 const char* apPassword = "setuppassword";
 
 DynamicJsonDocument metadataDoc(4096);
@@ -79,14 +79,14 @@ void checkOrConnectWifi() {
       WiFi.begin(SSID, WIFI_PASSWORD);
       wifiState = CONNECTING;
       lastWiFiAttemptMillis = millis();
-      Serial.println("Attempting to connect to WiFi...");
+      Serial.println(F("Attempting to connect to WiFi..."));
       break;
     case CONNECTING:
       // Check if connected
       if (WiFi.status() == WL_CONNECTED) {
         wifiState = CONNECTED;
-        Serial.println("Connected to WiFi!");
-        Serial.print("IP Address: ");
+        Serial.println(F("Connected to WiFi!"));
+        Serial.print(F("IP Address: "));
         Serial.println(WiFi.localIP());
       } else if (millis() - lastWiFiAttemptMillis > wifiAttemptInterval) {
         // Retry after interval
@@ -97,7 +97,7 @@ void checkOrConnectWifi() {
       // Check if still connected
       if (WiFi.status() != WL_CONNECTED) {
         wifiState = DISCONNECTED;
-        Serial.println("WiFi connection lost. Attempting to reconnect...");
+        Serial.println(F("WiFi connection lost. Attempting to reconnect..."));
       }
       break;
   }
@@ -118,9 +118,9 @@ bool fetchAndInitMetadata(HTTPClient& http, WiFiClientSecure& client) {
       http.end();
       return success;
     } else {
-      Serial.print("Metadata fetch attempt ");
+      Serial.print(F("Metadata fetch attempt "));
       Serial.print(attempt + 1);
-      Serial.print(" failed, HTTP code: ");
+      Serial.print(F(" failed, HTTP code: "));
       Serial.println(httpCode);
       http.end();
       delay(1000);  // wait for 1 second before retrying
@@ -141,7 +141,7 @@ void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const ch
   constructFilePath(filePath, frameID, sizeof(filePath));
 
   if (SPIFFS.exists(filePath)) {
-    Serial.print("File already exists: ");
+    Serial.print(F("File already exists: "));
     Serial.println(filePath);
     return;
   }
@@ -169,20 +169,20 @@ void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const ch
         http.end();
         return;
       } else {
-        Serial.print("Unexpected frame size: ");
+        Serial.print(F("Unexpected frame size: "));
         Serial.println(bytesRead);
       }
     } else {
-      Serial.print("Frame data fetch attempt ");
+      Serial.print(F("Frame data fetch attempt "));
       Serial.print(attempt + 1);
-      Serial.print(" failed, HTTP code: ");
+      Serial.print(F(" failed, HTTP code: "));
       Serial.println(httpCode);
     }
 
     http.end();
     delay(1000);
   }
-  Serial.println("Failed to fetch frame data after retries.");
+  Serial.println(F("Failed to fetch frame data after retries."));
 }
 
 void initializeFrameProgressVars() {
@@ -199,14 +199,14 @@ void checkOrUpdateFirmware(HTTPClient& http, WiFiClientSecure& client) {
   char versionCheckURL[256];
   snprintf(versionCheckURL, sizeof(versionCheckURL), "%s%s", FIRMWARE_URL, FIRMWARE_VERSION);
 
-  Serial.print("Checking against version: ");
+  Serial.print(F("Checking against version: "));
   Serial.println(FIRMWARE_VERSION);
 
   http.begin(client, versionCheckURL);
   int httpCode = http.GET();
 
   if (httpCode == 200) {
-    Serial.println("Firmware update available!");
+    Serial.println(F("Firmware update available!"));
 
     Update.onProgress([](size_t done, size_t total) {
       updateAndDisplayProgress(done, total, CRGB::Green);
@@ -216,29 +216,29 @@ void checkOrUpdateFirmware(HTTPClient& http, WiFiClientSecure& client) {
     bool canBegin = Update.begin(contentLength);
 
     if (canBegin) {
-      Serial.println("Starting firmware update");
+      Serial.println(F("Starting firmware update"));
       WiFiClient* client = http.getStreamPtr();
       size_t written = Update.writeStream(*client);
 
       if (written == contentLength) {
-        Serial.println("Update successfully completed. Rebooting...");
+        Serial.println(F("Update successfully completed. Rebooting..."));
         Update.end();
         ESP.restart();
       } else {
-        Serial.println("Update failed.");
+        Serial.println(F("Update failed."));
         Update.abort();
       }
     } else {
-      Serial.println("Not enough space to begin firmware update");
+      Serial.println(F("Not enough space to begin firmware update"));
     }
   } else if (httpCode == 204) {
-    Serial.println("Firmware is up to date");
+    Serial.println(F("Firmware is up to date"));
   } else if (httpCode == 501) {
-    Serial.println("No firmware available on server.");
+    Serial.println(F("No firmware available on server."));
   } else if (httpCode == 502) {
-    Serial.println("Error reading firmware file on server.");
+    Serial.println(F("Error reading firmware file on server."));
   } else {
-    Serial.print("Failed to check firmware version, HTTP code: ");
+    Serial.print(F("Failed to check firmware version, HTTP code: "));
     Serial.println(httpCode);
   }
   http.end();
@@ -247,7 +247,7 @@ void checkOrUpdateFirmware(HTTPClient& http, WiFiClientSecure& client) {
 void saveMetadataToFile() {
   File file = SPIFFS.open(METADATA_FILE_NAME, FILE_WRITE);
   if (!file) {
-    Serial.println("Failed to open metadata file for writing");
+    Serial.println(F("Failed to open metadata file for writing"));
     return;
   }
 
@@ -260,16 +260,16 @@ void saveMetadataToFile() {
   file.close();
 
   if (metadataDocSize == writtenLength) {
-    Serial.println("Metadata saved to file. Saw expected length written.");
+    Serial.println(F("Metadata saved to file. Saw expected length written."));
   } else {
-    Serial.println("Did not see expected length written to metadata file.");
+    Serial.println(F("Did not see expected length written to metadata file."));
   }
 }
 
 // fetch new metadata, cleanup files, then fetch new frame data
 bool fetchMetadataAndFrames(HTTPClient& http, WiFiClientSecure& client) {
   if (!fetchAndInitMetadata(http, client)) {
-    Serial.println("Failed to fetch metadata.");
+    Serial.println(F("Failed to fetch metadata."));
     return false;
   }
 
@@ -280,7 +280,7 @@ bool fetchMetadataAndFrames(HTTPClient& http, WiFiClientSecure& client) {
   // fetch frame data for each frame in the metadata
   for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
     const char* animationID = animation["animationID"].as<const char*>();
-    Serial.print("Saving to SPIFFS: ");
+    Serial.print(F("Saving to SPIFFS: "));
     Serial.println(animationID);
     for (const char* frameID : animation["frameOrder"].as<JsonArray>()) {
       fetchAndStoreFrameData(http, client, frameID);
@@ -292,7 +292,7 @@ bool fetchMetadataAndFrames(HTTPClient& http, WiFiClientSecure& client) {
 bool loadMetadataFromFile() {
   File file = SPIFFS.open(METADATA_FILE_NAME, FILE_READ);
   if (!file) {
-    Serial.println("Failed to open metadata file");
+    Serial.println(F("Failed to open metadata file"));
     return false;
   }
 
@@ -301,11 +301,11 @@ bool loadMetadataFromFile() {
   file.close();
 
   if (error) {
-    Serial.print("deserialization of metadata from file failed: ");
+    Serial.print(F("deserialization of metadata from file failed: "));
     Serial.println(error.c_str());
     return false;
   } else {
-    Serial.println("Successfully loaded metadata from save file.");
+    Serial.println(F("Successfully loaded metadata from save file."));
   }
 
   return true;
@@ -317,7 +317,7 @@ bool deserializeAndStoreMetadata(WiFiClient& stream) {
   DeserializationError error = deserializeJson(metadataDoc, bufferingStream);
 
   if (error) {
-    Serial.print("deserialization of metadata from wifi stream failed: ");
+    Serial.print(F("deserialization of metadata from wifi stream failed: "));
     Serial.println(error.c_str());
     return false;
   }
@@ -330,7 +330,7 @@ bool deserializeAndStoreMetadata(WiFiClient& stream) {
 bool doesLocalMetadataMatchServer(HTTPClient& http, WiFiClientSecure& client) {
   // Check if the 'hash' key exists in the JSON object
   if (!jsonMetadata.containsKey("hash") || jsonMetadata["hash"].isNull()) {
-    Serial.println("Hash key not found in local metadata.");
+    Serial.println(F("Hash key not found in local metadata."));
     return false;
   }
 
@@ -347,7 +347,7 @@ bool doesLocalMetadataMatchServer(HTTPClient& http, WiFiClientSecure& client) {
     http.end();
     return hashesMatch;
   } else {
-    Serial.print("Failed to get hash response, HTTP code: ");
+    Serial.print(F("Failed to get hash response, HTTP code: "));
     Serial.println(httpCode);
   }
 
@@ -398,12 +398,12 @@ void cleanupUnusedFiles() {
 
   while (file) {
     const char* fileName = file.name();
-    Serial.print("Assessing file for deletion: ");
+    Serial.print(F("Assessing file for deletion: "));
     Serial.println(fileName);
 
     // skip metadata file
     if (strcmp(fileName, METADATA_FILE_NAME + 1) == 0) {
-      Serial.println("Found metadata file. Skipping.");
+      Serial.println(F("Found metadata file. Skipping."));
       file.close();
       file = root.openNextFile();
       continue;
@@ -430,9 +430,9 @@ void cleanupUnusedFiles() {
       snprintf(fullPath, sizeof(fullPath), "/%s", fileName);
 
       if (SPIFFS.remove(fullPath)) {
-        Serial.print("Successfully deleted unused frame file: ");
+        Serial.print(F("Successfully deleted unused frame file: "));
       } else {
-        Serial.print("Failed to delete file: ");
+        Serial.print(F("Failed to delete file: "));
       }
       Serial.println(fullPath);
     }
@@ -450,7 +450,7 @@ void cleanupUnusedFiles() {
 void saveFrameToSPIFFS(const char* filePath) {
   File file = SPIFFS.open(filePath, FILE_WRITE, true);
   if (!file) {
-    Serial.print("Failed to open file for writing. Filename: ");
+    Serial.print(F("Failed to open file for writing. Filename: "));
     Serial.println(filePath);
     return;
   }
@@ -467,17 +467,17 @@ void readFrameFromSPIFFS(const char* frameID) {
 
   File file = SPIFFS.open(filePath, FILE_READ);
   if (!file) {
-    Serial.print("Failed to open file for reading. Filename: ");
+    Serial.print(F("Failed to open file for reading. Filename: "));
     Serial.println(filePath);
     return;
   }
 
   size_t bytesRead = file.read(frameDataBuffer, SIZE);
   if (bytesRead != SIZE) {
-    Serial.print("Failed to read full frame from ");
+    Serial.print(F("Failed to read full frame from "));
     Serial.println(filePath);
   } else {
-    Serial.print("Frame read from SPIFFS: ");
+    Serial.print(F("Frame read from SPIFFS: "));
     Serial.println(filePath);
   }
   file.close();
@@ -509,7 +509,7 @@ void parseAndDisplayFrame() {
 
 void connectToWifi() {
   WiFi.begin(SSID, WIFI_PASSWORD);
-  Serial.println("Connecting to WiFi...");
+  Serial.println(F("Connecting to WiFi..."));
 
   // Wait for connection
   int attempts = 0;
@@ -520,11 +520,10 @@ void connectToWifi() {
   }
 
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Failed to connect to WiFi. Please check credentials and try again.");
+    Serial.println(F("Failed to connect to WiFi. Please check credentials and try again."));
   } else {
-    Serial.println("");
-    Serial.println("WiFi connected successfully.");
-    Serial.print("IP Address of this device: ");
+    Serial.println(F("WiFi connected successfully."));
+    Serial.print(F("IP Address of this device: "));
     Serial.println(WiFi.localIP());
   }
 }
@@ -535,36 +534,36 @@ void printAnimationMetadata() {
     int frameDuration = animation["frameDuration"];
     int repeatCount = animation["repeatCount"];
 
-    Serial.print("Animation ID: ");
+    Serial.print(F("Animation ID: "));
     Serial.println(animationID);
-    Serial.print("Frame Duration: ");
+    Serial.print(F("Frame Duration: "));
     Serial.println(frameDuration);
-    Serial.print("Repeat Count: ");
+    Serial.print(F("Repeat Count: "));
     Serial.println(repeatCount);
 
-    Serial.print("Frame Order: ");
+    Serial.print(F("Frame Order: "));
     for (const char* frameID : animation["frameOrder"].as<JsonArray>()) {
       Serial.print(frameID);
-      Serial.print(" ");
+      Serial.print(F(" "));
     }
-    Serial.println("\n-----");
+    Serial.println(F("\n-----"));
   }
 }
 
 void printFrameData() {
-  Serial.println("Frame Data:");
+  Serial.println(F("Frame Data:"));
   for (size_t i = 0; i < SIZE; i++) {
     if (i > 0 && i % BYTES_PER_PIXEL == 0) {
       Serial.println();  // New line every 3 bytes (1 RGB LED)
     }
-    Serial.print("0x");
+    Serial.print(F("0x"));
     if (frameDataBuffer[i] < 0x10) {  // Print leading zero for single digit hex numbers
-      Serial.print("0");
+      Serial.print(F("0"));
     }
     Serial.print(frameDataBuffer[i], HEX);  // Print byte in HEX
-    Serial.print(" ");                      // Space between bytes
+    Serial.print(F(" "));                   // Space between bytes
   }
-  Serial.println("\n-------------------");
+  Serial.println(F("\n-------------------"));
 }
 
 void listSPIFFSFiles() {
@@ -579,36 +578,36 @@ void listSPIFFSFiles() {
 void writeTestFile() {
   File file = SPIFFS.open("/testfile.txt", FILE_WRITE, true);
   if (!file) {
-    Serial.println("There was an error opening the file for writing");
+    Serial.println(F("There was an error opening the file for writing"));
     return;
   }
 
-  if (file.print("This is a test file.")) {
-    Serial.println("File was written successfully");
+  if (file.print(F("This is a test file."))) {
+    Serial.println(F("File was written successfully"));
   } else {
-    Serial.println("File write failed");
+    Serial.println(F("File write failed"));
   }
 
   file.close();
 }
 
 void connectToWiFi(const String& ssid, const String& password) {
-  Serial.print("Connecting to ");
+  Serial.print(F("Connecting to "));
   Serial.print(ssid);
-  Serial.println(" ...");
+  Serial.println(F(" ..."));
 
   WiFi.begin(ssid.c_str(), password.c_str());
 
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(1000);
-    Serial.print(".");
+    Serial.print(F("."));
     attempts++;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println();
-    Serial.println("WiFi connected successfully.");
+    Serial.println(F("WiFi connected successfully."));
 
     const boolean readOnly = false;
     preferences.begin("my-app", readOnly);
@@ -619,7 +618,7 @@ void connectToWiFi(const String& ssid, const String& password) {
 
     preferences.end();  // Close the Preferences
   } else {
-    Serial.println("Failed to connect to WiFi. Please check your credentials");
+    Serial.println(F("Failed to connect to WiFi. Please check your credentials"));
   }
 }
 
@@ -634,7 +633,7 @@ void reconnectWiFi() {
 
     WiFi.begin(ssid.c_str(), password.c_str());
 
-    Serial.print("Reconnecting to WiFi...");
+    Serial.print(F("Reconnecting to WiFi..."));
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {
       delay(1000);
@@ -643,12 +642,12 @@ void reconnectWiFi() {
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Reconnected.");
+      Serial.println(F("Reconnected."));
     } else {
-      Serial.println("Reconnect failed.");
+      Serial.println(F("Reconnect failed."));
     }
   } else {
-    Serial.println("No stored WiFi credentials.");
+    Serial.println(F("No stored WiFi credentials."));
   }
 
   preferences.end();  // Close the Preferences
@@ -656,8 +655,8 @@ void reconnectWiFi() {
 
 void setupWebServer() {
   WiFi.softAP(apSSID, apPassword);
-  Serial.println("Access Point Started");
-  Serial.print("AP IP address: ");
+  Serial.println(F("Access Point Started"));
+  Serial.print(F("AP IP address: "));
   Serial.println(WiFi.softAPIP());
 
   server.on("/", HTTP_GET, []() {
@@ -676,7 +675,7 @@ void setupWebServer() {
       Serial.println(F("Disconnecting from AP mode and sending success page."));
 
       // Serve a success page
-      String successPage = "<h1>Success!</h1><p>Your matrix is now connected to " + ssid + ".</p><p>Please close this page</p>";gs
+      String successPage = "<h1>Success!</h1><p>Your matrix is now connected to " + ssid + ".</p><p>Please close this page</p>";
       server.send(200, "text/html", successPage);
 
       delay(5000);
@@ -702,7 +701,7 @@ void setup() {
   FastLED.clear(true);
 
   if (!SPIFFS.begin(true)) {
-    Serial.println("An Error has occurred while mounting SPIFFS");
+    Serial.println(F("An Error has occurred while mounting SPIFFS"));
     return;
   }
 
@@ -725,13 +724,13 @@ void setup() {
     }
   }
 
-  Serial.println("Loading metadata from saved files.");
+  Serial.println(F("Loading metadata from saved files."));
   if (SPIFFS.exists(METADATA_FILE_NAME)) {
     if (!loadMetadataFromFile()) {
-      Serial.println("Failed to load metadata from file");
+      Serial.println(F("Failed to load metadata from file"));
     }
   } else {
-    Serial.println("No saved metadata available.");
+    Serial.println(F("No saved metadata available."));
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -744,14 +743,14 @@ void setup() {
     lastFirmwareCheckMillis = millis();
 
     if (!doesLocalMetadataMatchServer(http, client)) {  // if metadata is not up to date, fetch new data
-      Serial.println("Local metadata is out of date with server. Pulling new data.");
+      Serial.println(F("Local metadata is out of date with server. Pulling new data."));
       fetchMetadataAndFrames(http, client);
     } else {
-      Serial.println("Metadata matches server. No need to fetch new data.");
+      Serial.println(F("Metadata matches server. No need to fetch new data."));
     }
     lastHashCheckMillis = millis();
   } else {
-    Serial.println("Not connected to WiFi. Continuing offline.");
+    Serial.println(F("Not connected to WiFi. Continuing offline."));
   }
 
   printAnimationMetadata();
@@ -763,7 +762,7 @@ void loop() {
       currentAnimation = jsonMetadata["metadata"].as<JsonArray>()[currentAnimationIndex];
       const char* animationID = currentAnimation["animationID"];
 
-      Serial.print("Displaying Animation: ");
+      Serial.print(F("Displaying Animation: "));
       Serial.println(animationID);
 
       animationLoaded = true;
@@ -776,7 +775,7 @@ void loop() {
         // If there are more frames to display
         const char* currentFrameID = frameOrder[currentFrameIndex];
 
-        Serial.print("Displaying Frame ID: ");
+        Serial.print(F("Displaying Frame ID: "));
         Serial.println(currentFrameID);
 
         readFrameFromSPIFFS(currentFrameID);
@@ -818,7 +817,7 @@ void loop() {
       WiFiClientSecure client;
       client.setInsecure();
       if (!doesLocalMetadataMatchServer(http, client)) {
-        Serial.println("Local metadata is out of date. Updating...");
+        Serial.println(F("Local metadata is out of date. Updating..."));
         fetchMetadataAndFrames(http, client);
 
         // Reset animation parameters if new metadata is fetched
@@ -826,7 +825,7 @@ void loop() {
         currentFrameIndex = 0;
         animationLoaded = false;
       } else {
-        Serial.println("Local metadata is up to date.");
+        Serial.println(F("Local metadata is up to date."));
       }
       lastHashCheckMillis = millis();
     }
