@@ -713,9 +713,18 @@ void setup() {
   //writeTestFile();
   //listSPIFFSFiles();
 
-  //reconnectWiFi();
+  reconnectWiFi();
   if (WiFi.status() != WL_CONNECTED) {
     setupWebServer();  // Setup web server for initial configuration if WiFi is not connected
+
+    size_t maxAttempts = 256;
+    size_t attemptCount = 0;
+    while (WiFi.status() != WL_CONNECTED && attemptCount < maxAttempts) {
+      server.handleClient();
+      attemptCount++;
+      updateAndDisplayProgress(attemptCount, maxAttempts, CRGB::Purple);
+      delay(400);
+    }
   }
 
   Serial.println("Loading metadata from saved files.");
@@ -751,7 +760,6 @@ void setup() {
 }
 
 void loop() {
-  server.handleClient();
   if (currentAnimationIndex < jsonMetadata["metadata"].as<JsonArray>().size()) {
     if (!animationLoaded) {  // If this is the first frame of the animation, load the animation
       currentAnimation = jsonMetadata["metadata"].as<JsonArray>()[currentAnimationIndex];
