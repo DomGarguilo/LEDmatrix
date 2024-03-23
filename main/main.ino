@@ -610,11 +610,8 @@ void connectToWiFi(const String& ssid, const String& password) {
     Serial.println();
     Serial.println("WiFi connected successfully.");
 
-    // Open Preferences with my-app namespace. Each application module, library, etc.
-    // has to use a namespace name to prevent key name collisions. We will open storage in
-    // RW-mode (second parameter has to be false).
-    // Note: Namespace name is limited to 15 chars.
-    preferences.begin("my-app", false);
+    const boolean readOnly = false;
+    preferences.begin("my-app", readOnly);
 
     // Put the SSID and password into storage
     preferences.putString("ssid", ssid);
@@ -627,7 +624,8 @@ void connectToWiFi(const String& ssid, const String& password) {
 }
 
 void reconnectWiFi() {
-  preferences.begin("my-app", true);  // Read-only
+  const boolean readOnly = true;
+  preferences.begin("my-app", readOnly);
 
   // If preferences contain ssid and password
   if (preferences.isKey("ssid") && preferences.isKey("password")) {
@@ -663,7 +661,7 @@ void setupWebServer() {
   Serial.println(WiFi.softAPIP());
 
   server.on("/", HTTP_GET, []() {
-    server.send(200, "text/html", "<h1>ESP32 WiFi Setup</h1><form action=\"/setup\" method=\"POST\">SSID:<br><input type=\"text\" name=\"ssid\"><br>Password:<br><input type=\"password\" name=\"password\"><br><br><input type=\"submit\" value=\"Connect\"></form>");
+    server.send(200, "text/html", F("<h1>ESP32 WiFi Setup</h1><form action=\"/setup\" method=\"POST\">SSID:<br><input type=\"text\" name=\"ssid\"><br>Password:<br><input type=\"password\" name=\"password\"><br><br><input type=\"submit\" value=\"Connect\"></form>"));
   });
 
   server.on("/setup", HTTP_POST, []() {
@@ -675,10 +673,10 @@ void setupWebServer() {
 
     // Check the connection status
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Disconnecting from AP mode and sending success page.");
+      Serial.println(F("Disconnecting from AP mode and sending success page."));
 
       // Serve a success page
-      String successPage = "<h1>Success!</h1><p>Your matrix is now connected to " + ssid + ".</p><p>Please close this page</p>";
+      String successPage = "<h1>Success!</h1><p>Your matrix is now connected to " + ssid + ".</p><p>Please close this page</p>";gs
       server.send(200, "text/html", successPage);
 
       delay(5000);
