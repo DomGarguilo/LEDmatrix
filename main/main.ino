@@ -32,6 +32,13 @@
 
 #define METADATA_FILE_NAME "/metadata.json"
 
+#define WIFI_ERROR_FRAME_ID "wifiError"
+#define SERVER_ERROR_FRAME_ID "serverError"
+#define EMPTY_QUEUE_FRAME_ID "emptyQueue"
+#define WIFI_ERROR_FILE_NAME WIFI_ERROR_FRAME_ID ".bin"
+#define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
+#define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
+
 #define FIRMWARE_VERSION "0.0.2"
 
 WebServer server(80);
@@ -126,6 +133,7 @@ bool fetchAndInitMetadata(HTTPClient& http, WiFiClientSecure& client) {
       delay(1000);  // wait for 1 second before retrying
     }
   }
+  displayErrorSymbol(SERVER_ERROR_FRAME_ID);
   return false;
 }
 
@@ -183,6 +191,7 @@ void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const ch
     delay(1000);
   }
   Serial.println(F("Failed to fetch frame data after retries."));
+  displayErrorSymbol(SERVER_ERROR_FRAME_ID);
 }
 
 void initializeFrameProgressVars() {
@@ -349,6 +358,7 @@ bool doesLocalMetadataMatchServer(HTTPClient& http, WiFiClientSecure& client) {
   } else {
     Serial.print(F("Failed to get hash response, HTTP code: "));
     Serial.println(httpCode);
+    displayErrorSymbol(SERVER_ERROR_FRAME_ID);
   }
 
   http.end();
@@ -401,9 +411,10 @@ void cleanupUnusedFiles() {
     Serial.print(F("Assessing file for deletion: "));
     Serial.println(fileName);
 
-    // skip metadata file
-    if (strcmp(fileName, METADATA_FILE_NAME + 1) == 0) {
-      Serial.println(F("Found metadata file. Skipping."));
+    // skip metadata file and error frame files.
+    if (strcmp(fileName, METADATA_FILE_NAME + 1) == 0 ||  // +1 needed to skip the slash
+        strcmp(fileName, WIFI_ERROR_FILE_NAME) == 0 || strcmp(fileName, SERVER_ERROR_FILE_NAME) == 0 || strcmp(fileName, EMPTY_QUEUE_FILE_NAME) == 0) {
+      Serial.println(F("Skipping essential file."));
       file.close();
       file = root.openNextFile();
       continue;
@@ -692,6 +703,23 @@ void setupWebServer() {
   server.begin();
 }
 
+void fetchErrorSymbolsIfNeeded(HTTPClient& http, WiFiClientSecure& client) {
+  fetchAndStoreFrameData(http, client, WIFI_ERROR_FRAME_ID);
+  fetchAndStoreFrameData(http, client, SERVER_ERROR_FRAME_ID);
+  fetchAndStoreFrameData(http, client, EMPTY_QUEUE_FRAME_ID);
+}
+
+void displayErrorSymbol(const char* symbol) {
+  readFrameFromSPIFFS(symbol);
+  for (int i = 0; i < 5; i++) {
+    parseAndDisplayFrame();
+    delay(750);
+    FastLED.clear();
+    FastLED.show();
+    delay(500);
+  }
+}
+
 void setup() {
 
   Serial.begin(115200);
@@ -742,6 +770,8 @@ void setup() {
     checkOrUpdateFirmware(http, client);
     lastFirmwareCheckMillis = millis();
 
+    fetchErrorSymbolsIfNeeded(http, client);
+
     if (!doesLocalMetadataMatchServer(http, client)) {  // if metadata is not up to date, fetch new data
       Serial.println(F("Local metadata is out of date with server. Pulling new data."));
       fetchMetadataAndFrames(http, client);
@@ -751,9 +781,17 @@ void setup() {
     lastHashCheckMillis = millis();
   } else {
     Serial.println(F("Not connected to WiFi. Continuing offline."));
+    displayErrorSymbol(WIFI_ERROR_FRAME_ID);
   }
 
   printAnimationMetadata();
+
+  if (jsonMetadata["metadata"].as<JsonArray>().size() < 1) {
+    while (true) {
+      displayErrorSymbol(EMPTY_QUEUE_FRAME_ID);
+      Serial.println(F("Queue is empty. Not advancing to main loop."));
+    }
+  }
 }
 
 void loop() {
@@ -768,7 +806,7 @@ void loop() {
       animationLoaded = true;
     }
 
-    if (millis() - previousMillis >= currentAnimation["frameDuration"].as<int>() * 3) {
+    if (millis() - previousMillis >= currentAnimation["frameDuration"].as<int>()) {
       // Time to show the next frame
       JsonArray frameOrder = currentAnimation["frameOrder"].as<JsonArray>();
       if (currentFrameIndex < frameOrder.size()) {
