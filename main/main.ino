@@ -90,6 +90,7 @@ void checkOrConnectWifi() {
         WiFi.begin(ssid.c_str(), password.c_str());
       } else {
         Serial.println(F("No stored WiFi credentials."));
+        break;
       }
       wifiState = CONNECTING;
       lastWiFiAttemptMillis = millis();
@@ -742,7 +743,7 @@ void setup() {
   //writeTestFile();
   //listSPIFFSFiles();
 
-  //reconnectWiFi();
+  reconnectWiFi();
   if (WiFi.status() != WL_CONNECTED) {
     setupWebServer();  // Setup web server for initial configuration
   }
