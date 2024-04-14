@@ -43,7 +43,7 @@
 
 WebServer server(80);
 Preferences preferences;
-const char* apSSID = "LED-Matrix-Setup";
+const char* apSSID = "ESP32-Setup";
 const char* apPassword = "setuppassword";
 
 DynamicJsonDocument metadataDoc(4096);
@@ -658,13 +658,13 @@ void reconnectWiFi() {
 }
 
 void setupWebServer() {
-  WiFi.softAP(apSSID, "setuppassword");
+  WiFi.softAP(apSSID, apPassword);
   Serial.println(F("Access Point Started"));
   Serial.print(F("AP IP address: "));
   Serial.println(WiFi.softAPIP());
 
   server.on("/", HTTP_GET, []() {
-    server.send(200, "text/html", F("<h1>ESP32 WiFi Setup</h1><form action=\"/setup\" method=\"POST\">SSID:<br><input type=\"text\" name=\"ssid\"><br>Password:<br><input type=\"password\" name=\"password\"><br><br><input type=\"submit\" value=\"Connect\"></form>"));
+    server.send(200, "text/html", "<h1>ESP32 WiFi Setup</h1><form action=\"/setup\" method=\"POST\">SSID:<br><input type=\"text\" name=\"ssid\"><br>Password:<br><input type=\"password\" name=\"password\"><br><br><input type=\"submit\" value=\"Connect\"></form>");
   });
 
   server.on("/setup", HTTP_POST, []() {
@@ -744,7 +744,7 @@ void setup() {
 
   //reconnectWiFi();
   if (WiFi.status() != WL_CONNECTED) {
-    setupWebServer();  // Setup web server for initial configuration if WiFi is not connected
+    setupWebServer();  // Setup web server for initial configuration
   }
 
   Serial.println(F("Loading metadata from saved files."));
