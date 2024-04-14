@@ -83,7 +83,14 @@ void checkOrConnectWifi() {
   switch (wifiState) {
     case DISCONNECTED:
       // Start connecting
-      WiFi.begin(SSID, WIFI_PASSWORD);
+      if (preferences.isKey("ssid") && preferences.isKey("password")) {
+        String ssid = preferences.getString("ssid", "");
+        String password = preferences.getString("password", "");
+
+        WiFi.begin(ssid.c_str(), password.c_str());
+      } else {
+        Serial.println(F("No stored WiFi credentials."));
+      }
       wifiState = CONNECTING;
       lastWiFiAttemptMillis = millis();
       Serial.println(F("Attempting to connect to WiFi..."));
@@ -518,27 +525,6 @@ void parseAndDisplayFrame() {
 
 // DEBUG METHODS
 
-void connectToWifi() {
-  WiFi.begin(SSID, WIFI_PASSWORD);
-  Serial.println(F("Connecting to WiFi..."));
-
-  // Wait for connection
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 200) {
-    delay(100);
-    Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println(F("Failed to connect to WiFi. Please check credentials and try again."));
-  } else {
-    Serial.println(F("WiFi connected successfully."));
-    Serial.print(F("IP Address of this device: "));
-    Serial.println(WiFi.localIP());
-  }
-}
-
 void printAnimationMetadata() {
   for (JsonObject animation : jsonMetadata["metadata"].as<JsonArray>()) {
     const char* animationID = animation["animationID"].as<const char*>();
@@ -609,11 +595,14 @@ void connectToWiFi(const String& ssid, const String& password) {
 
   WiFi.begin(ssid.c_str(), password.c_str());
 
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+  Serial.print(F("Connecting to WiFi..."));
+  size_t attemptCount = 0;
+  size_t maxAttempts = 32;
+  while (WiFi.status() != WL_CONNECTED && attemptCount < maxAttempts) {
+    updateAndDisplayProgress(attemptCount, maxAttempts, CRGB::Orange);
     delay(1000);
-    Serial.print(F("."));
-    attempts++;
+    Serial.print(".");
+    attemptCount++;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -630,6 +619,7 @@ void connectToWiFi(const String& ssid, const String& password) {
     preferences.end();  // Close the Preferences
   } else {
     Serial.println(F("Failed to connect to WiFi. Please check your credentials"));
+    displayErrorSymbol(WIFI_ERROR_FRAME_ID);
   }
 }
 
@@ -645,17 +635,20 @@ void reconnectWiFi() {
     WiFi.begin(ssid.c_str(), password.c_str());
 
     Serial.print(F("Reconnecting to WiFi..."));
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    size_t attemptCount = 0;
+    size_t maxAttempts = 32;
+    while (WiFi.status() != WL_CONNECTED && attemptCount < maxAttempts) {
+      updateAndDisplayProgress(attemptCount, maxAttempts, CRGB::Orange);
       delay(1000);
       Serial.print(".");
-      attempts++;
+      attemptCount++;
     }
 
     if (WiFi.status() == WL_CONNECTED) {
       Serial.println(F("Reconnected."));
     } else {
       Serial.println(F("Reconnect failed."));
+      displayErrorSymbol(WIFI_ERROR_FRAME_ID);
     }
   } else {
     Serial.println(F("No stored WiFi credentials."));
@@ -665,7 +658,7 @@ void reconnectWiFi() {
 }
 
 void setupWebServer() {
-  WiFi.softAP(apSSID, apPassword);
+  WiFi.softAP(apSSID, "setuppassword");
   Serial.println(F("Access Point Started"));
   Serial.print(F("AP IP address: "));
   Serial.println(WiFi.softAPIP());
@@ -701,6 +694,17 @@ void setupWebServer() {
 
 
   server.begin();
+
+  size_t maxAttempts = 256;
+  size_t attemptCount = 0;
+  while (WiFi.status() != WL_CONNECTED && attemptCount < maxAttempts) {
+    server.handleClient();
+    attemptCount++;
+    updateAndDisplayProgress(attemptCount, maxAttempts, CRGB::Purple);
+    delay(400);
+  }
+
+  server.close();
 }
 
 void fetchErrorSymbolsIfNeeded(HTTPClient& http, WiFiClientSecure& client) {
@@ -738,18 +742,9 @@ void setup() {
   //writeTestFile();
   //listSPIFFSFiles();
 
-  reconnectWiFi();
+  //reconnectWiFi();
   if (WiFi.status() != WL_CONNECTED) {
     setupWebServer();  // Setup web server for initial configuration if WiFi is not connected
-
-    size_t maxAttempts = 256;
-    size_t attemptCount = 0;
-    while (WiFi.status() != WL_CONNECTED && attemptCount < maxAttempts) {
-      server.handleClient();
-      attemptCount++;
-      updateAndDisplayProgress(attemptCount, maxAttempts, CRGB::Purple);
-      delay(400);
-    }
   }
 
   Serial.println(F("Loading metadata from saved files."));
