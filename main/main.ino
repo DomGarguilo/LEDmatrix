@@ -39,7 +39,7 @@
 #define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
-#define FIRMWARE_VERSION "0.0.4"
+#define FIRMWARE_VERSION "0.0.5"
 
 WebServer server(80);
 Preferences preferences;
@@ -81,21 +81,23 @@ size_t totalProgressSteps = 0;
 
 
 void checkOrConnectWifi() {
+  const boolean readOnly = true;
   switch (wifiState) {
     case DISCONNECTED:
       // Start connecting
+      preferences.begin("my-app", readOnly);
       if (preferences.isKey("ssid") && preferences.isKey("password")) {
         String ssid = preferences.getString("ssid", "");
         String password = preferences.getString("password", "");
-
         WiFi.begin(ssid.c_str(), password.c_str());
+        wifiState = CONNECTING;
+        lastWiFiAttemptMillis = millis();
+        Serial.println(F("Attempting to connect to WiFi..."));
       } else {
         Serial.println(F("No stored WiFi credentials."));
-        break;
+        delay(50);
       }
-      wifiState = CONNECTING;
-      lastWiFiAttemptMillis = millis();
-      Serial.println(F("Attempting to connect to WiFi..."));
+      preferences.end();
       break;
     case CONNECTING:
       // Check if connected
@@ -496,9 +498,6 @@ void readFrameFromSPIFFS(const char* frameID) {
   if (bytesRead != SIZE) {
     Serial.print(F("Failed to read full frame from "));
     Serial.println(filePath);
-  } else {
-    Serial.print(F("Frame read from SPIFFS: "));
-    Serial.println(filePath);
   }
   file.close();
 }
@@ -810,9 +809,6 @@ void loop() {
       if (currentFrameIndex < frameOrder.size()) {
         // If there are more frames to display
         const char* currentFrameID = frameOrder[currentFrameIndex];
-
-        Serial.print(F("Displaying Frame ID: "));
-        Serial.println(currentFrameID);
 
         readFrameFromSPIFFS(currentFrameID);
         parseAndDisplayFrame();
