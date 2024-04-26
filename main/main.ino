@@ -39,7 +39,7 @@
 #define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
-#define FIRMWARE_VERSION "0.0.3"
+#define FIRMWARE_VERSION "0.0.4"
 
 WebServer server(80);
 Preferences preferences;
@@ -71,6 +71,7 @@ const unsigned long hashCheckInterval = 5 * 60 * 1000;  // 5 minute interval
 unsigned long previousMillis = 0;  // stores last time frame was updated
 int currentFrameIndex = 0;         // index of the current frame
 int currentAnimationIndex = 0;     // index of the current animation
+int currentRepeatCount = 0;        // Current count of how many times the animation has been repeated
 bool animationLoaded = false;      // flag to check if the animation details are loaded
 JsonObject currentAnimation;       // stores the current animation
 
@@ -800,6 +801,7 @@ void loop() {
       Serial.println(animationID);
 
       animationLoaded = true;
+      currentRepeatCount = 0;
     }
 
     if (millis() - previousMillis >= currentAnimation["frameDuration"].as<int>()) {
@@ -818,10 +820,18 @@ void loop() {
         previousMillis = millis();  // save the last time a frame was displayed
         currentFrameIndex++;
       } else {
-        // No more frames, move to the next animation
-        currentFrameIndex = 0;
-        currentAnimationIndex++;
-        animationLoaded = false;
+        // Check if the animation needs to be repeated
+        if (currentRepeatCount < currentAnimation["repeatCount"].as<int>() - 1) {
+          // Repeat the animation again
+          currentRepeatCount++;
+          currentFrameIndex = 0;  // Reset frame index to restart the animation
+        } else {
+          // No more repeats, move to the next animation
+          currentFrameIndex = 0;
+          currentAnimationIndex++;
+          animationLoaded = false;
+          currentRepeatCount = 0;  // Reset repeat count for the next animation
+        }
       }
     }
   } else {
