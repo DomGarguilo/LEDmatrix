@@ -39,7 +39,7 @@
 #define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
-#define FIRMWARE_VERSION "0.0.4"
+#define FIRMWARE_VERSION "0.0.5"
 
 WebServer server(80);
 Preferences preferences;
