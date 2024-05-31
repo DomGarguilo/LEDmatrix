@@ -40,7 +40,7 @@
 #define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
-#define FIRMWARE_VERSION "0.0.5"
+#define FIRMWARE_VERSION "0.0.6"
 
 DNSServer dnsServer;
 WebServer server(80);
@@ -681,14 +681,37 @@ void startSoftAccessPoint(const char* ssid, const char* password, const IPAddres
 }
 
 const char setup_page[] PROGMEM = R"=====(
-  <h1>ESP32 WiFi Setup</h1>
-  <form action="/setup" method="POST">
-    SSID:<br>
-    <input type="text" name="ssid"><br>
-    Password:<br>
-    <input type="password" name="password"><br><br>
-    <input type="submit" value="Connect">
-  </form>
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <title>ESP32 WiFi Setup</title>
+      <style>
+        #loading { display: none; }
+      </style>
+      <script>
+        function showLoading() {
+          document.getElementById("loading").style.display = "block";
+          document.getElementById("form").style.display = "none";
+        }
+      </script>
+    </head>
+    <body>
+      <h1>ESP32 WiFi Setup</h1>
+      <div id="form">
+        <form action="/setup" method="POST" onsubmit="showLoading()">
+          SSID:<br>
+          <input type="text" name="ssid"><br>
+          Password:<br>
+          <input type="password" name="password"><br><br>
+          <input type="submit" value="Connect">
+        </form>
+      </div>
+      <div id="loading">
+        <h2>Trying to connect...</h2>
+        <h3>See LED matrix for progress</h3>
+      </div>
+    </body>
+  </html>
 )=====";
 
 const char success_page_template[] PROGMEM = R"=====(
