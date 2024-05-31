@@ -813,7 +813,7 @@ void setup() {
   //writeTestFile();
   //listSPIFFSFiles();
 
-  //reconnectWiFi();
+  reconnectWiFi();
   if (WiFi.status() != WL_CONNECTED) {
     startSoftAccessPoint(apSSID, apPassword, localIP, gatewayIP);
     setUpDNSServer(dnsServer, localIP);
