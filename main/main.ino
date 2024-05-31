@@ -9,6 +9,7 @@
 #include <WiFiClientSecure.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 #include <Preferences.h>
 #include "secrets.h"
 
@@ -41,10 +42,17 @@
 
 #define FIRMWARE_VERSION "0.0.5"
 
+DNSServer dnsServer;
 WebServer server(80);
 Preferences preferences;
 const char* apSSID = "ESP32-Setup";
 const char* apPassword = "setuppassword";
+
+const IPAddress localIP(4, 3, 2, 1);
+const IPAddress gatewayIP(4, 3, 2, 1);
+const IPAddress subnetMask(255, 255, 255, 0);
+
+const String localIPURL = "http://4.3.2.1";
 
 DynamicJsonDocument metadataDoc(4096);
 JsonObject jsonMetadata = metadataDoc.to<JsonObject>();
@@ -658,17 +666,26 @@ void reconnectWiFi() {
   preferences.end();  // Close the Preferences
 }
 
-void setupWebServer() {
-  WiFi.softAP(apSSID, apPassword);
+void setUpDNSServer(DNSServer& dnsServer, const IPAddress& localIP) {
+  dnsServer.setTTL(3600);
+  dnsServer.start(53, "*", localIP);
+}
+
+void startSoftAccessPoint(const char* ssid, const char* password, const IPAddress& localIP, const IPAddress& gatewayIP) {
+  WiFi.mode(WIFI_MODE_AP);
+  WiFi.softAPConfig(localIP, gatewayIP, subnetMask);
+  WiFi.softAP(ssid, password);
   Serial.println(F("Access Point Started"));
   Serial.print(F("AP IP address: "));
   Serial.println(WiFi.softAPIP());
+}
 
-  server.on("/", HTTP_GET, []() {
+void setupWebServer(WebServer& server, const IPAddress& localIP) {
+  server.on("/", HTTP_ANY, [&server]() {
     server.send(200, "text/html", "<h1>ESP32 WiFi Setup</h1><form action=\"/setup\" method=\"POST\">SSID:<br><input type=\"text\" name=\"ssid\"><br>Password:<br><input type=\"password\" name=\"password\"><br><br><input type=\"submit\" value=\"Connect\"></form>");
   });
 
-  server.on("/setup", HTTP_POST, []() {
+  server.on("/setup", HTTP_POST, [&server]() {
     String ssid = server.arg("ssid");
     String password = server.arg("password");
 
@@ -693,12 +710,60 @@ void setupWebServer() {
     }
   });
 
+  server.on("/connecttest.txt", [&server]() {
+    server.sendHeader("Location", "http://logout.net", true);
+    server.send(302);
+  });
+
+  server.on("/wpad.dat", [&server]() {
+    server.send(404);
+  });
+
+  server.on("/generate_204", [&server]() {
+    server.sendHeader("Location", localIPURL, true);
+    server.send(302);
+  });
+
+  server.on("/redirect", [&server]() {
+    server.sendHeader("Location", localIPURL, true);
+    server.send(302);
+  });
+
+  server.on("/hotspot-detect.html", [&server]() {
+    server.sendHeader("Location", localIPURL, true);
+    server.send(302);
+  });
+
+  server.on("/canonical.html", [&server]() {
+    server.sendHeader("Location", localIPURL, true);
+    server.send(302);
+  });
+
+  server.on("/success.txt", [&server]() {
+    server.send(200);
+  });
+
+  server.on("/ncsi.txt", [&server]() {
+    server.sendHeader("Location", localIPURL, true);
+    server.send(302);
+  });
+
+  server.on("/favicon.ico", [&server]() {
+    server.send(404);
+  });
+
+  server.onNotFound([&server]() {
+    server.sendHeader("Location", localIPURL, true);
+    server.send(302);
+  });
+
 
   server.begin();
 
   size_t maxAttempts = 256;
   size_t attemptCount = 0;
   while (WiFi.status() != WL_CONNECTED && attemptCount < maxAttempts) {
+    dnsServer.processNextRequest();
     server.handleClient();
     attemptCount++;
     updateAndDisplayProgress(attemptCount, maxAttempts, CRGB::Purple);
@@ -727,7 +792,12 @@ void displayErrorSymbol(const char* symbol) {
 
 void setup() {
 
+  Serial.setTxBufferSize(1024);
   Serial.begin(115200);
+
+  while (!Serial) {
+    //wait
+  }
 
   FastLED.addLeds<CHIPSET, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);  // Init of the Fastled library
   FastLED.setBrightness(BRIGHTNESS);
@@ -745,7 +815,9 @@ void setup() {
 
   reconnectWiFi();
   if (WiFi.status() != WL_CONNECTED) {
-    setupWebServer();  // Setup web server for initial configuration
+    startSoftAccessPoint(apSSID, apPassword, localIP, gatewayIP);
+    setUpDNSServer(dnsServer, localIP);
+    setupWebServer(server, localIP);  // Setup web server for initial configuration
   }
 
   Serial.println(F("Loading metadata from saved files."));
