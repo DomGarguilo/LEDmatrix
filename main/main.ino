@@ -680,9 +680,32 @@ void startSoftAccessPoint(const char* ssid, const char* password, const IPAddres
   Serial.println(WiFi.softAPIP());
 }
 
+const char setup_page[] PROGMEM = R"=====(
+  <h1>ESP32 WiFi Setup</h1>
+  <form action="/setup" method="POST">
+    SSID:<br>
+    <input type="text" name="ssid"><br>
+    Password:<br>
+    <input type="password" name="password"><br><br>
+    <input type="submit" value="Connect">
+  </form>
+)=====";
+
+const char success_page_template[] PROGMEM = R"=====(
+  <h1>Success!</h1>
+  <p>Your matrix is now connected to %s.</p>
+  <p>Please close this page</p>
+)=====";
+
+const char failure_page[] PROGMEM = R"=====(
+  <h1>Connection Failed</h1>
+  <p>Could not connect to %s. Please check your credentials and try again.</p>
+  <p><a href="/">Try Again</a></p>
+)=====";
+
 void setupWebServer(WebServer& server, const IPAddress& localIP) {
   server.on("/", HTTP_ANY, [&server]() {
-    server.send(200, "text/html", "<h1>ESP32 WiFi Setup</h1><form action=\"/setup\" method=\"POST\">SSID:<br><input type=\"text\" name=\"ssid\"><br>Password:<br><input type=\"password\" name=\"password\"><br><br><input type=\"submit\" value=\"Connect\"></form>");
+    server.send_P(200, "text/html", setup_page);
   });
 
   server.on("/setup", HTTP_POST, [&server]() {
@@ -697,8 +720,9 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
       Serial.println(F("Disconnecting from AP mode and sending success page."));
 
       // Serve a success page
-      String successPage = "<h1>Success!</h1><p>Your matrix is now connected to " + ssid + ".</p><p>Please close this page</p>";
-      server.send(200, "text/html", successPage);
+      char success_page[512];
+      snprintf(success_page, sizeof(success_page), success_page_template, ssid.c_str());
+      server.send(200, "text/html", success_page);
 
       delay(5000);
       // Disconnect AP mode as we're now connected to the WiFi
@@ -706,7 +730,9 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
 
     } else {
       // Serve a failure message and allow retry
-      server.send(200, "text/html", "<h1>Connection Failed</h1><p>Could not connect to " + ssid + ". Please check your credentials and try again.</p><p><a href=\"/\">Try Again</a></p>");
+      char failure_page_content[512];
+      snprintf(failure_page_content, sizeof(failure_page_content), failure_page, ssid.c_str());
+      server.send(200, "text/html", failure_page_content);
     }
   });
 
