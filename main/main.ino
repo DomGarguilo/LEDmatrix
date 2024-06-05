@@ -134,23 +134,30 @@ void checkOrConnectWifi() {
 bool fetchAndInitMetadata(HTTPClient& http, WiFiClientSecure& client) {
   const int maxRetries = 3;
   for (int attempt = 0; attempt < maxRetries; attempt++) {
-
     http.begin(client, METADATA_URL);
     int httpCode = http.GET();
 
     if (httpCode == HTTP_CODE_OK) {
       WiFiClient& stream = http.getStream();
-      bool success = deserializeAndStoreMetadata(stream);
-      http.end();
-      return success;
+      ReadBufferingStream bufferingStream(stream, 64);
+      DeserializationError error = deserializeJson(metadataDoc, bufferingStream);
+
+      if (error) {
+        Serial.print(F("deserialization of metadata from wifi stream failed: "));
+        Serial.println(error.c_str());
+      } else {
+        Serial.println(F("Fetched and deserialized metadata."));
+        http.end();
+        return true;
+      }
     } else {
       Serial.print(F("Metadata fetch attempt "));
       Serial.print(attempt + 1);
       Serial.print(F(" failed, HTTP code: "));
       Serial.println(httpCode);
-      http.end();
-      delay(1000);  // wait for 1 second before retrying
     }
+    http.end();
+    delay(1000);  // wait for 1 second before retrying
   }
   displayErrorSymbol(SERVER_ERROR_FRAME_ID);
   return false;
@@ -164,12 +171,13 @@ void constructFrameDataURL(char* url, const char* frameID, int bufferSize) {
 // Fetches frame data for a given frame ID and stores it in SPIFFS
 void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const char* frameID) {
   const int maxRetries = 3;
-  char filePath[32];  // max filename length is 32
-  constructFilePath(filePath, frameID, sizeof(filePath));
+  const char* tempFilePath = "/temp_frame.bin";  // Single temporary file for all frames
+  char finalFilePath[32];
+  constructFilePath(finalFilePath, frameID, sizeof(finalFilePath));
 
-  if (SPIFFS.exists(filePath)) {
+  if (SPIFFS.exists(finalFilePath)) {
     Serial.print(F("File already exists: "));
-    Serial.println(filePath);
+    Serial.println(finalFilePath);
     return;
   }
 
@@ -187,12 +195,16 @@ void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const ch
         progressStepsCompleted++;
         updateAndDisplayProgress(progressStepsCompleted, totalProgressSteps, CRGB::Blue);
 
-        saveFrameToSPIFFS(filePath);
-        // After saving, increment steps and display progress again
+        // use a temp file in case there is an error mid-write
+        // this protects against bad frame files with correct names
+        saveFrameToTempFile(tempFilePath);
+
+        SPIFFS.rename(tempFilePath, finalFilePath);
+        Serial.print(F("Frame saved and renamed to: "));
+        Serial.println(finalFilePath);
+
         progressStepsCompleted++;
         updateAndDisplayProgress(progressStepsCompleted, totalProgressSteps, CRGB::Blue);
-
-
         http.end();
         return;
       } else {
@@ -205,12 +217,23 @@ void fetchAndStoreFrameData(HTTPClient& http, WiFiClientSecure& client, const ch
       Serial.print(F(" failed, HTTP code: "));
       Serial.println(httpCode);
     }
-
     http.end();
     delay(1000);
   }
   Serial.println(F("Failed to fetch frame data after retries."));
   displayErrorSymbol(SERVER_ERROR_FRAME_ID);
+}
+
+void saveFrameToTempFile(const char* filePath) {
+  File file = SPIFFS.open(filePath, FILE_WRITE, true);
+  if (!file) {
+    Serial.print(F("Failed to open file for writing. Filename: "));
+    Serial.println(filePath);
+    return;
+  }
+
+  file.write(frameDataBuffer, SIZE);
+  file.close();
 }
 
 void initializeFrameProgressVars() {
@@ -314,6 +337,8 @@ bool fetchMetadataAndFrames(HTTPClient& http, WiFiClientSecure& client) {
       fetchAndStoreFrameData(http, client, frameID);
     }
   }
+
+  saveMetadataToFile();
   return true;
 }
 
@@ -336,21 +361,6 @@ bool loadMetadataFromFile() {
     Serial.println(F("Successfully loaded metadata from save file."));
   }
 
-  return true;
-}
-
-// deserialize the metadata json from the stream and store it in file
-bool deserializeAndStoreMetadata(WiFiClient& stream) {
-  ReadBufferingStream bufferingStream(stream, 64);
-  DeserializationError error = deserializeJson(metadataDoc, bufferingStream);
-
-  if (error) {
-    Serial.print(F("deserialization of metadata from wifi stream failed: "));
-    Serial.println(error.c_str());
-    return false;
-  }
-
-  saveMetadataToFile();
   return true;
 }
 
