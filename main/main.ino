@@ -26,11 +26,6 @@
 #define MAX_ANIMATIONS 10
 #define SIZE (NUM_LEDS * BYTES_PER_PIXEL)
 
-#define METADATA_URL SERVER_BASE_URL "metadata"
-#define METADATA_HASH_URL SERVER_BASE_URL "metadata/hash/"
-#define FRAME_DATA_BASE_URL SERVER_BASE_URL "frameData/"
-#define FIRMWARE_URL SERVER_BASE_URL "firmware/"
-
 #define METADATA_FILE_NAME "/metadata.json"
 
 #define WIFI_ERROR_FRAME_ID "wifiError"
@@ -41,6 +36,11 @@
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
 #define FIRMWARE_VERSION "0.0.7"
+
+char* metadataURL;
+char* metadataHashURL;
+char* frameDataBaseURL;
+char* firmwareURL;
 
 DNSServer dnsServer;
 WebServer server(80);
@@ -129,12 +129,43 @@ void checkOrConnectWifi() {
   }
 }
 
+void setURLsFromPreferences() {
+  preferences.begin("my-app", true);
+  if (preferences.isKey("serverURL")) {
+    String storedServerURL = preferences.getString("serverURL", "");
+
+    metadataURL = new char[storedServerURL.length() + 10];
+    metadataHashURL = new char[storedServerURL.length() + 15];
+    frameDataBaseURL = new char[storedServerURL.length() + 11];
+    firmwareURL = new char[storedServerURL.length() + 10];
+
+    sprintf(metadataURL, "%smetadata", storedServerURL.c_str());
+    sprintf(metadataHashURL, "%smetadata/hash", storedServerURL.c_str());
+    sprintf(frameDataBaseURL, "%sframeData", storedServerURL.c_str());
+    sprintf(firmwareURL, "%sfirmware", storedServerURL.c_str());
+
+    Serial.print("Server URL: ");
+    Serial.println(storedServerURL);
+    Serial.print("metadataURL");
+    Serial.println(metadataURL);
+    Serial.print("frameDataBaseURL");
+    Serial.println(frameDataBaseURL);
+  } else {
+    Serial.println(F("Failed to set server URL from preferences!!"));
+    metadataURL = nullptr;
+    metadataHashURL = nullptr;
+    frameDataBaseURL = nullptr;
+    firmwareURL = nullptr;
+  }
+  preferences.end();
+}
+
 // fetches metadata and initializes the global metadata json
 // returns true if the data was successfully fetched
 bool fetchAndInitMetadata(HTTPClient& http, WiFiClientSecure& client) {
   const int maxRetries = 3;
   for (int attempt = 0; attempt < maxRetries; attempt++) {
-    http.begin(client, METADATA_URL);
+    http.begin(client, metadataURL);
     int httpCode = http.GET();
 
     if (httpCode == HTTP_CODE_OK) {
@@ -165,7 +196,7 @@ bool fetchAndInitMetadata(HTTPClient& http, WiFiClientSecure& client) {
 
 // creates the endpoint to fetch the data of the given frame
 void constructFrameDataURL(char* url, const char* frameID, int bufferSize) {
-  snprintf(url, bufferSize, "%s%s", FRAME_DATA_BASE_URL, frameID);
+  snprintf(url, bufferSize, "%s%s", frameDataBaseURL, frameID);
 }
 
 // Fetches frame data for a given frame ID and stores it in SPIFFS
@@ -248,7 +279,7 @@ void initializeFrameProgressVars() {
 // uses the given firmware version to check if there is a firmware update available
 void checkOrUpdateFirmware(HTTPClient& http, WiFiClientSecure& client) {
   char versionCheckURL[256];
-  snprintf(versionCheckURL, sizeof(versionCheckURL), "%s%s", FIRMWARE_URL, FIRMWARE_VERSION);
+  snprintf(versionCheckURL, sizeof(versionCheckURL), "%s%s", firmwareURL, FIRMWARE_VERSION);
 
   Serial.print(F("Checking against version: "));
   Serial.println(FIRMWARE_VERSION);
@@ -373,7 +404,7 @@ bool doesLocalMetadataMatchServer(HTTPClient& http, WiFiClientSecure& client) {
   }
 
   char hashCheckURL[256];
-  snprintf(hashCheckURL, sizeof(hashCheckURL), "%s%s", METADATA_HASH_URL, jsonMetadata["hash"].as<const char*>());
+  snprintf(hashCheckURL, sizeof(hashCheckURL), "%s%s", metadataHashURL, jsonMetadata["hash"].as<const char*>());
 
   http.begin(client, hashCheckURL);
   int httpCode = http.GET();
@@ -694,7 +725,7 @@ const char setup_page[] PROGMEM = R"=====(
   <!DOCTYPE html>
   <html>
     <head>
-      <title>ESP32 WiFi Setup</title>
+      <title>ESP32 Setup</title>
       <style>
         #loading { display: none; }
       </style>
@@ -706,13 +737,15 @@ const char setup_page[] PROGMEM = R"=====(
       </script>
     </head>
     <body>
-      <h1>ESP32 WiFi Setup</h1>
+      <h1>ESP32 Setup</h1>
       <div id="form">
         <form action="/setup" method="POST" onsubmit="showLoading()">
           SSID:<br>
           <input type="text" name="ssid"><br>
           Password:<br>
-          <input type="password" name="password"><br><br>
+          <input type="password" name="password"><br>
+          Server URL:<br>
+          <input type="text" name="serverURL"><br><br>
           <input type="submit" value="Connect">
         </form>
       </div>
@@ -744,12 +777,19 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
   server.on("/setup", HTTP_POST, [&server]() {
     String ssid = server.arg("ssid");
     String password = server.arg("password");
+    String serverURLStr = server.arg("serverURL");
 
     // Attempt to connect to WiFi
     connectToWiFi(ssid, password);
 
     // Check the connection status
     if (WiFi.status() == WL_CONNECTED) {
+      preferences.begin("my-app", false);
+      preferences.putString("serverURL", serverURLStr);
+      preferences.end();
+
+      setURLsFromPreferences();
+
       Serial.println(F("Disconnecting from AP mode and sending success page."));
 
       // Serve a success page
@@ -872,11 +912,13 @@ void setup() {
   //writeTestFile();
   //listSPIFFSFiles();
 
-  reconnectWiFi();
+  //reconnectWiFi();
   if (WiFi.status() != WL_CONNECTED) {
     startSoftAccessPoint(apSSID, apPassword, localIP, gatewayIP);
     setUpDNSServer(dnsServer, localIP);
     setupWebServer(server, localIP);  // Setup web server for initial configuration
+  } else {
+    setURLsFromPreferences();
   }
 
   Serial.println(F("Loading metadata from saved files."));
