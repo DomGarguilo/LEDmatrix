@@ -788,8 +788,6 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
       preferences.putString("serverURL", serverURLStr);
       preferences.end();
 
-      setURLsFromPreferences();
-
       Serial.println(F("Disconnecting from AP mode and sending success page."));
 
       // Serve a success page
@@ -917,9 +915,9 @@ void setup() {
     startSoftAccessPoint(apSSID, apPassword, localIP, gatewayIP);
     setUpDNSServer(dnsServer, localIP);
     setupWebServer(server, localIP);  // Setup web server for initial configuration
-  } else {
-    setURLsFromPreferences();
   }
+
+  setURLsFromPreferences();
 
   Serial.println(F("Loading metadata from saved files."));
   if (SPIFFS.exists(METADATA_FILE_NAME)) {
