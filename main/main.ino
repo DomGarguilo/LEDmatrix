@@ -11,7 +11,6 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <Preferences.h>
-#include "secrets.h"
 
 // board setup
 #define DATA_PIN 13
@@ -146,9 +145,9 @@ void setURLsFromPreferences() {
 
     Serial.print("Server URL: ");
     Serial.println(storedServerURL);
-    Serial.print("metadataURL");
+    Serial.print("metadataURL: ");
     Serial.println(metadataURL);
-    Serial.print("frameDataBaseURL");
+    Serial.print("frameDataBaseURL: ");
     Serial.println(frameDataBaseURL);
   } else {
     Serial.println(F("Failed to set server URL from preferences!!"));
@@ -721,6 +720,44 @@ void startSoftAccessPoint(const char* ssid, const char* password, const IPAddres
   Serial.println(WiFi.softAPIP());
 }
 
+bool verifyServerConnectivity(const String& serverURLStr) {
+  if (serverURLStr.isEmpty()) {
+    Serial.println(F("Server URL is not set."));
+    return false;
+  }
+
+  char pingURL[256];
+  snprintf(pingURL, sizeof(pingURL), "%sping", serverURLStr.c_str());
+
+  HTTPClient http;
+  WiFiClientSecure client;
+  http.useHTTP10(true);
+  client.setInsecure();
+  http.begin(client, pingURL);
+
+  int httpCode = http.GET();
+
+  if (httpCode == HTTP_CODE_OK) {
+    String payload = http.getString();
+    payload.trim();
+    payload.replace("\"", "");
+    if (payload == "pong") {
+      Serial.println(F("Server ping successful."));
+      http.end();
+      return true;
+    } else {
+      Serial.print(F("Unexpected ping response: "));
+      Serial.println(payload);
+    }
+  } else {
+    Serial.print(F("Failed to ping server, HTTP code: "));
+    Serial.println(httpCode);
+  }
+
+  http.end();
+  return false;
+}
+
 const char setup_page[] PROGMEM = R"=====(
   <!DOCTYPE html>
   <html>
@@ -763,11 +800,13 @@ const char success_page_template[] PROGMEM = R"=====(
   <p>Please close this page</p>
 )=====";
 
-const char failure_page[] PROGMEM = R"=====(
+const char failure_page_template[] PROGMEM = R"=====(
   <h1>Connection Failed</h1>
-  <p>Could not connect to %s. Please check your credentials and try again.</p>
+  <p>Could not connect using given %s. Please check your input and try again.</p>
   <p><a href="/">Try Again</a></p>
 )=====";
+
+bool setupComplete = false;
 
 void setupWebServer(WebServer& server, const IPAddress& localIP) {
   server.on("/", HTTP_ANY, [&server]() {
@@ -782,29 +821,39 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
     // Attempt to connect to WiFi
     connectToWiFi(ssid, password);
 
-    // Check the connection status
-    if (WiFi.status() == WL_CONNECTED) {
-      preferences.begin("my-app", false);
-      preferences.putString("serverURL", serverURLStr);
-      preferences.end();
-
-      Serial.println(F("Disconnecting from AP mode and sending success page."));
-
-      // Serve a success page
-      char success_page[512];
-      snprintf(success_page, sizeof(success_page), success_page_template, ssid.c_str());
-      server.send(200, "text/html", success_page);
-
-      delay(5000);
-      // Disconnect AP mode as we're now connected to the WiFi
-      WiFi.softAPdisconnect(true);
-
-    } else {
-      // Serve a failure message and allow retry
+    // Check the WiFi connection status
+    if (WiFi.status() != WL_CONNECTED) {
       char failure_page_content[512];
-      snprintf(failure_page_content, sizeof(failure_page_content), failure_page, ssid.c_str());
+      snprintf(failure_page_content, sizeof(failure_page_content), failure_page_template, "WiFi credentials", "/");
       server.send(200, "text/html", failure_page_content);
+      return;
     }
+
+    if (!serverURLStr.endsWith("/")) {
+      serverURLStr += "/";
+    }
+
+    if (!verifyServerConnectivity(serverURLStr)) {
+      char failure_page_content[512];
+      snprintf(failure_page_content, sizeof(failure_page_content), failure_page_template, "server settings", "/");
+      server.send(200, "text/html", failure_page_content);
+      return;
+    }
+
+    preferences.begin("my-app", false);
+    preferences.putString("serverURL", serverURLStr);
+    preferences.end();
+
+    // If both WiFi and server verification are successful
+    Serial.println(F("WiFi and server connection successful. Disconnecting from AP mode and sending success page."));
+
+    char success_page[512];
+    snprintf(success_page, sizeof(success_page), success_page_template, ssid.c_str());
+    server.send(200, "text/html", success_page);
+
+    delay(5000);
+    WiFi.softAPdisconnect(true);
+    setupComplete = true;
   });
 
   server.on("/connecttest.txt", [&server]() {
@@ -859,7 +908,7 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
 
   size_t maxAttempts = 256;
   size_t attemptCount = 0;
-  while (WiFi.status() != WL_CONNECTED && attemptCount < maxAttempts) {
+  while (!setupComplete && attemptCount < maxAttempts) {
     dnsServer.processNextRequest();
     server.handleClient();
     attemptCount++;
@@ -914,7 +963,7 @@ void setup() {
   if (WiFi.status() != WL_CONNECTED) {
     startSoftAccessPoint(apSSID, apPassword, localIP, gatewayIP);
     setUpDNSServer(dnsServer, localIP);
-    setupWebServer(server, localIP);  // Setup web server for initial configuration
+    setupWebServer(server, localIP);
   }
 
   setURLsFromPreferences();
@@ -945,6 +994,7 @@ void setup() {
     } else {
       Serial.println(F("Metadata matches server. No need to fetch new data."));
     }
+    http.end();
     lastHashCheckMillis = millis();
   } else {
     Serial.println(F("Not connected to WiFi. Continuing offline."));
