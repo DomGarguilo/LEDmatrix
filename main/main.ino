@@ -133,24 +133,33 @@ void setURLsFromPreferences() {
   if (preferences.isKey("serverURL")) {
     String storedServerURL = preferences.getString("serverURL", "");
 
-    metadataURL = new char[storedServerURL.length() + 10];
-    metadataHashURL = new char[storedServerURL.length() + 15];
-    frameDataBaseURL = new char[storedServerURL.length() + 11];
-    firmwareURL = new char[storedServerURL.length() + 10];
+    const char* metadataPath = "metadata/";
+    const char* metadataHashPath = "metadata/hash/";
+    const char* frameDataPath = "frameData/";
+    const char* firmwarePath = "firmware/";
 
-    sprintf(metadataURL, "%smetadata", storedServerURL.c_str());
-    sprintf(metadataHashURL, "%smetadata/hash", storedServerURL.c_str());
-    sprintf(frameDataBaseURL, "%sframeData", storedServerURL.c_str());
-    sprintf(firmwareURL, "%sfirmware", storedServerURL.c_str());
+    metadataURL = new char[storedServerURL.length() + strlen(metadataPath) + 1];
+    metadataHashURL = new char[storedServerURL.length() + strlen(metadataHashPath) + 1];
+    frameDataBaseURL = new char[storedServerURL.length() + strlen(frameDataPath) + 1];
+    firmwareURL = new char[storedServerURL.length() + strlen(firmwarePath) + 1];
 
-    Serial.print("Server URL: ");
+    sprintf(metadataURL, "%s%s", storedServerURL.c_str(), metadataPath);
+    sprintf(metadataHashURL, "%s%s", storedServerURL.c_str(), metadataHashPath);
+    sprintf(frameDataBaseURL, "%s%s", storedServerURL.c_str(), frameDataPath);
+    sprintf(firmwareURL, "%s%s", storedServerURL.c_str(), firmwarePath);
+
+    Serial.print(F("Server URL: "));
     Serial.println(storedServerURL);
-    Serial.print("metadataURL: ");
+    Serial.print(F("metadataURL: "));
     Serial.println(metadataURL);
-    Serial.print("frameDataBaseURL: ");
+    Serial.print(F("metadataHashURL: "));
+    Serial.println(metadataHashURL);
+    Serial.print(F("frameDataBaseURL: "));
     Serial.println(frameDataBaseURL);
+    Serial.print(F("firmwareURL: "));
+    Serial.println(firmwareURL);
   } else {
-    Serial.println(F("Failed to set server URL from preferences!!"));
+    Serial.println(F("Failed to find server URL in preferences!"));
     metadataURL = nullptr;
     metadataHashURL = nullptr;
     frameDataBaseURL = nullptr;
@@ -280,8 +289,8 @@ void checkOrUpdateFirmware(HTTPClient& http, WiFiClientSecure& client) {
   char versionCheckURL[256];
   snprintf(versionCheckURL, sizeof(versionCheckURL), "%s%s", firmwareURL, FIRMWARE_VERSION);
 
-  Serial.print(F("Checking against version: "));
-  Serial.println(FIRMWARE_VERSION);
+  Serial.print(F("Checking via firmware URL: "));
+  Serial.println(versionCheckURL);
 
   http.begin(client, versionCheckURL);
   int httpCode = http.GET();
@@ -959,7 +968,7 @@ void setup() {
   //writeTestFile();
   //listSPIFFSFiles();
 
-  //reconnectWiFi();
+  reconnectWiFi();
   if (WiFi.status() != WL_CONNECTED) {
     startSoftAccessPoint(apSSID, apPassword, localIP, gatewayIP);
     setUpDNSServer(dnsServer, localIP);
