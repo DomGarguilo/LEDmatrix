@@ -1078,6 +1078,7 @@ void loop() {
       WiFiClientSecure client;
       client.setInsecure();
       checkOrUpdateFirmware(http, client);
+      http.end();
       lastFirmwareCheckMillis = millis();
     }
   } else if (millis() - lastHashCheckMillis >= hashCheckInterval) {
@@ -1100,6 +1101,7 @@ void loop() {
       } else {
         Serial.println(F("Local metadata is up to date."));
       }
+      http.end();
       lastHashCheckMillis = millis();
     }
   } else {
