@@ -818,11 +818,13 @@ const char failure_page_template[] PROGMEM = R"=====(
 bool setupComplete = false;
 
 void setupWebServer(WebServer& server, const IPAddress& localIP) {
+  size_t attemptCount = 0;
+
   server.on("/", HTTP_ANY, [&server]() {
     server.send_P(200, "text/html", setup_page);
   });
 
-  server.on("/setup", HTTP_POST, [&server]() {
+  server.on("/setup", HTTP_POST, [&server, &attemptCount]() {
     String ssid = server.arg("ssid");
     String password = server.arg("password");
     String serverURLStr = server.arg("serverURL");
@@ -834,6 +836,7 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
     if (WiFi.status() != WL_CONNECTED) {
       char failure_page_content[512];
       snprintf(failure_page_content, sizeof(failure_page_content), failure_page_template, "WiFi credentials", "/");
+      attemptCount = 0;
       server.send(200, "text/html", failure_page_content);
       return;
     }
@@ -845,6 +848,7 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
     if (!verifyServerConnectivity(serverURLStr)) {
       char failure_page_content[512];
       snprintf(failure_page_content, sizeof(failure_page_content), failure_page_template, "server settings", "/");
+      attemptCount = 0;
       server.send(200, "text/html", failure_page_content);
       return;
     }
@@ -916,7 +920,6 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
   server.begin();
 
   size_t maxAttempts = 256;
-  size_t attemptCount = 0;
   while (!setupComplete && attemptCount < maxAttempts) {
     dnsServer.processNextRequest();
     server.handleClient();
