@@ -26,11 +26,6 @@
 #define MAX_ANIMATIONS 10
 #define SIZE (NUM_LEDS * BYTES_PER_PIXEL)
 
-#define METADATA_URL SERVER_BASE_URL "metadata"
-#define METADATA_HASH_URL SERVER_BASE_URL "metadata/hash/"
-#define FRAME_DATA_BASE_URL SERVER_BASE_URL "frameData/"
-#define FIRMWARE_URL SERVER_BASE_URL "firmware/"
-
 #define METADATA_FILE_NAME "/metadata.json"
 
 #define WIFI_ERROR_FRAME_ID "wifiError"
@@ -40,7 +35,12 @@
 #define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
-#define FIRMWARE_VERSION "0.0.7"
+#define FIRMWARE_VERSION "0.0.8"
+
+char* metadataURL;
+char* metadataHashURL;
+char* frameDataBaseURL;
+char* firmwareURL;
 
 DNSServer dnsServer;
 WebServer server(80);
@@ -129,12 +129,52 @@ void checkOrConnectWifi() {
   }
 }
 
+void setURLsFromPreferences() {
+  preferences.begin("my-app", true);
+  if (preferences.isKey("serverURL")) {
+    String storedServerURL = preferences.getString("serverURL", "");
+
+    const char* metadataPath = "metadata/";
+    const char* metadataHashPath = "metadata/hash/";
+    const char* frameDataPath = "frameData/";
+    const char* firmwarePath = "firmware/";
+
+    metadataURL = new char[storedServerURL.length() + strlen(metadataPath) + 1];
+    metadataHashURL = new char[storedServerURL.length() + strlen(metadataHashPath) + 1];
+    frameDataBaseURL = new char[storedServerURL.length() + strlen(frameDataPath) + 1];
+    firmwareURL = new char[storedServerURL.length() + strlen(firmwarePath) + 1];
+
+    sprintf(metadataURL, "%s%s", storedServerURL.c_str(), metadataPath);
+    sprintf(metadataHashURL, "%s%s", storedServerURL.c_str(), metadataHashPath);
+    sprintf(frameDataBaseURL, "%s%s", storedServerURL.c_str(), frameDataPath);
+    sprintf(firmwareURL, "%s%s", storedServerURL.c_str(), firmwarePath);
+
+    Serial.print(F("Server URL: "));
+    Serial.println(storedServerURL);
+    Serial.print(F("metadataURL: "));
+    Serial.println(metadataURL);
+    Serial.print(F("metadataHashURL: "));
+    Serial.println(metadataHashURL);
+    Serial.print(F("frameDataBaseURL: "));
+    Serial.println(frameDataBaseURL);
+    Serial.print(F("firmwareURL: "));
+    Serial.println(firmwareURL);
+  } else {
+    Serial.println(F("Failed to find server URL in preferences!"));
+    metadataURL = nullptr;
+    metadataHashURL = nullptr;
+    frameDataBaseURL = nullptr;
+    firmwareURL = nullptr;
+  }
+  preferences.end();
+}
+
 // fetches metadata and initializes the global metadata json
 // returns true if the data was successfully fetched
 bool fetchAndInitMetadata(HTTPClient& http, WiFiClientSecure& client) {
   const int maxRetries = 3;
   for (int attempt = 0; attempt < maxRetries; attempt++) {
-    http.begin(client, METADATA_URL);
+    http.begin(client, metadataURL);
     int httpCode = http.GET();
 
     if (httpCode == HTTP_CODE_OK) {
@@ -165,7 +205,7 @@ bool fetchAndInitMetadata(HTTPClient& http, WiFiClientSecure& client) {
 
 // creates the endpoint to fetch the data of the given frame
 void constructFrameDataURL(char* url, const char* frameID, int bufferSize) {
-  snprintf(url, bufferSize, "%s%s", FRAME_DATA_BASE_URL, frameID);
+  snprintf(url, bufferSize, "%s%s", frameDataBaseURL, frameID);
 }
 
 // Fetches frame data for a given frame ID and stores it in SPIFFS
@@ -248,10 +288,10 @@ void initializeFrameProgressVars() {
 // uses the given firmware version to check if there is a firmware update available
 void checkOrUpdateFirmware(HTTPClient& http, WiFiClientSecure& client) {
   char versionCheckURL[256];
-  snprintf(versionCheckURL, sizeof(versionCheckURL), "%s%s", FIRMWARE_URL, FIRMWARE_VERSION);
+  snprintf(versionCheckURL, sizeof(versionCheckURL), "%s%s", firmwareURL, FIRMWARE_VERSION);
 
-  Serial.print(F("Checking against version: "));
-  Serial.println(FIRMWARE_VERSION);
+  Serial.print(F("Checking via firmware URL: "));
+  Serial.println(versionCheckURL);
 
   http.begin(client, versionCheckURL);
   int httpCode = http.GET();
@@ -373,7 +413,7 @@ bool doesLocalMetadataMatchServer(HTTPClient& http, WiFiClientSecure& client) {
   }
 
   char hashCheckURL[256];
-  snprintf(hashCheckURL, sizeof(hashCheckURL), "%s%s", METADATA_HASH_URL, jsonMetadata["hash"].as<const char*>());
+  snprintf(hashCheckURL, sizeof(hashCheckURL), "%s%s", metadataHashURL, jsonMetadata["hash"].as<const char*>());
 
   http.begin(client, hashCheckURL);
   int httpCode = http.GET();
@@ -690,11 +730,49 @@ void startSoftAccessPoint(const char* ssid, const char* password, const IPAddres
   Serial.println(WiFi.softAPIP());
 }
 
+bool verifyServerConnectivity(const String& serverURLStr) {
+  if (serverURLStr.isEmpty()) {
+    Serial.println(F("Server URL is not set."));
+    return false;
+  }
+
+  char pingURL[256];
+  snprintf(pingURL, sizeof(pingURL), "%sping", serverURLStr.c_str());
+
+  HTTPClient http;
+  WiFiClientSecure client;
+  http.useHTTP10(true);
+  client.setInsecure();
+  http.begin(client, pingURL);
+
+  int httpCode = http.GET();
+
+  if (httpCode == HTTP_CODE_OK) {
+    String payload = http.getString();
+    payload.trim();
+    payload.replace("\"", "");
+    if (payload == "pong") {
+      Serial.println(F("Server ping successful."));
+      http.end();
+      return true;
+    } else {
+      Serial.print(F("Unexpected ping response: "));
+      Serial.println(payload);
+    }
+  } else {
+    Serial.print(F("Failed to ping server, HTTP code: "));
+    Serial.println(httpCode);
+  }
+
+  http.end();
+  return false;
+}
+
 const char setup_page[] PROGMEM = R"=====(
   <!DOCTYPE html>
   <html>
     <head>
-      <title>ESP32 WiFi Setup</title>
+      <title>ESP32 Setup</title>
       <style>
         #loading { display: none; }
       </style>
@@ -706,13 +784,15 @@ const char setup_page[] PROGMEM = R"=====(
       </script>
     </head>
     <body>
-      <h1>ESP32 WiFi Setup</h1>
+      <h1>ESP32 Setup</h1>
       <div id="form">
         <form action="/setup" method="POST" onsubmit="showLoading()">
           SSID:<br>
           <input type="text" name="ssid"><br>
           Password:<br>
-          <input type="password" name="password"><br><br>
+          <input type="password" name="password"><br>
+          Server URL:<br>
+          <input type="text" name="serverURL"><br><br>
           <input type="submit" value="Connect">
         </form>
       </div>
@@ -730,43 +810,64 @@ const char success_page_template[] PROGMEM = R"=====(
   <p>Please close this page</p>
 )=====";
 
-const char failure_page[] PROGMEM = R"=====(
+const char failure_page_template[] PROGMEM = R"=====(
   <h1>Connection Failed</h1>
-  <p>Could not connect to %s. Please check your credentials and try again.</p>
+  <p>Could not connect using given %s. Please check your input and try again.</p>
   <p><a href="/">Try Again</a></p>
 )=====";
 
+bool setupComplete = false;
+
 void setupWebServer(WebServer& server, const IPAddress& localIP) {
+  size_t attemptCount = 0;
+
   server.on("/", HTTP_ANY, [&server]() {
     server.send_P(200, "text/html", setup_page);
   });
 
-  server.on("/setup", HTTP_POST, [&server]() {
+  server.on("/setup", HTTP_POST, [&server, &attemptCount]() {
     String ssid = server.arg("ssid");
     String password = server.arg("password");
+    String serverURLStr = server.arg("serverURL");
 
     // Attempt to connect to WiFi
     connectToWiFi(ssid, password);
 
-    // Check the connection status
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println(F("Disconnecting from AP mode and sending success page."));
-
-      // Serve a success page
-      char success_page[512];
-      snprintf(success_page, sizeof(success_page), success_page_template, ssid.c_str());
-      server.send(200, "text/html", success_page);
-
-      delay(5000);
-      // Disconnect AP mode as we're now connected to the WiFi
-      WiFi.softAPdisconnect(true);
-
-    } else {
-      // Serve a failure message and allow retry
+    // Check the WiFi connection status
+    if (WiFi.status() != WL_CONNECTED) {
       char failure_page_content[512];
-      snprintf(failure_page_content, sizeof(failure_page_content), failure_page, ssid.c_str());
+      snprintf(failure_page_content, sizeof(failure_page_content), failure_page_template, "WiFi credentials", "/");
+      attemptCount = 0;
       server.send(200, "text/html", failure_page_content);
+      return;
     }
+
+    if (!serverURLStr.endsWith("/")) {
+      serverURLStr += "/";
+    }
+
+    if (!verifyServerConnectivity(serverURLStr)) {
+      char failure_page_content[512];
+      snprintf(failure_page_content, sizeof(failure_page_content), failure_page_template, "server settings", "/");
+      attemptCount = 0;
+      server.send(200, "text/html", failure_page_content);
+      return;
+    }
+
+    preferences.begin("my-app", false);
+    preferences.putString("serverURL", serverURLStr);
+    preferences.end();
+
+    // If both WiFi and server verification are successful
+    Serial.println(F("WiFi and server connection successful. Disconnecting from AP mode and sending success page."));
+
+    char success_page[512];
+    snprintf(success_page, sizeof(success_page), success_page_template, ssid.c_str());
+    server.send(200, "text/html", success_page);
+
+    delay(5000);
+    WiFi.softAPdisconnect(true);
+    setupComplete = true;
   });
 
   server.on("/connecttest.txt", [&server]() {
@@ -820,8 +921,7 @@ void setupWebServer(WebServer& server, const IPAddress& localIP) {
   server.begin();
 
   size_t maxAttempts = 256;
-  size_t attemptCount = 0;
-  while (WiFi.status() != WL_CONNECTED && attemptCount < maxAttempts) {
+  while (!setupComplete && attemptCount < maxAttempts) {
     dnsServer.processNextRequest();
     server.handleClient();
     attemptCount++;
@@ -847,6 +947,25 @@ void displayErrorSymbol(const char* symbol) {
     FastLED.show();
     delay(500);
   }
+}
+
+void migrateServerURL() {
+  preferences.begin("my-app", false);
+  if (preferences.isKey("serverURL")) {
+    Serial.println(F("Server URL already stored in preferences."));
+    return;
+  }
+
+  // Use the hardcoded SERVER_BASE_URL from the old firmware
+  const char* serverURL = SERVER_BASE_URL;
+
+  if (serverURL != nullptr && strlen(serverURL) > 0) {
+    preferences.putString("serverURL", serverURL);
+    Serial.println(F("Migrated server URL to preferences."));
+  } else {
+    Serial.println(F("Hardcoded server URL is empty or invalid."));
+  }
+  preferences.end();
 }
 
 void setup() {
@@ -876,8 +995,12 @@ void setup() {
   if (WiFi.status() != WL_CONNECTED) {
     startSoftAccessPoint(apSSID, apPassword, localIP, gatewayIP);
     setUpDNSServer(dnsServer, localIP);
-    setupWebServer(server, localIP);  // Setup web server for initial configuration
+    setupWebServer(server, localIP);
   }
+
+  migrateServerURL();
+
+  setURLsFromPreferences();
 
   Serial.println(F("Loading metadata from saved files."));
   if (SPIFFS.exists(METADATA_FILE_NAME)) {
@@ -905,6 +1028,7 @@ void setup() {
     } else {
       Serial.println(F("Metadata matches server. No need to fetch new data."));
     }
+    http.end();
     lastHashCheckMillis = millis();
   } else {
     Serial.println(F("Not connected to WiFi. Continuing offline."));
@@ -976,6 +1100,7 @@ void loop() {
       WiFiClientSecure client;
       client.setInsecure();
       checkOrUpdateFirmware(http, client);
+      http.end();
       lastFirmwareCheckMillis = millis();
     }
   } else if (millis() - lastHashCheckMillis >= hashCheckInterval) {
@@ -998,6 +1123,7 @@ void loop() {
       } else {
         Serial.println(F("Local metadata is up to date."));
       }
+      http.end();
       lastHashCheckMillis = millis();
     }
   } else {
