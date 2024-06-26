@@ -11,6 +11,7 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <Preferences.h>
+#include "secrets.h"
 
 // board setup
 #define DATA_PIN 13
@@ -34,7 +35,7 @@
 #define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
-#define FIRMWARE_VERSION "0.0.7"
+#define FIRMWARE_VERSION "0.0.8"
 
 char* metadataURL;
 char* metadataHashURL;
@@ -948,6 +949,25 @@ void displayErrorSymbol(const char* symbol) {
   }
 }
 
+void migrateServerURL() {
+  preferences.begin("my-app", false);
+  if (preferences.isKey("serverURL")) {
+    Serial.println(F("Server URL already stored in preferences."));
+    return;
+  }
+
+  // Use the hardcoded SERVER_BASE_URL from the old firmware
+  const char* serverURL = SERVER_BASE_URL;
+
+  if (serverURL != nullptr && strlen(serverURL) > 0) {
+    preferences.putString("serverURL", serverURL);
+    Serial.println(F("Migrated server URL to preferences."));
+  } else {
+    Serial.println(F("Hardcoded server URL is empty or invalid."));
+  }
+  preferences.end();
+}
+
 void setup() {
 
   Serial.setTxBufferSize(1024);
@@ -977,6 +997,8 @@ void setup() {
     setUpDNSServer(dnsServer, localIP);
     setupWebServer(server, localIP);
   }
+
+  migrateServerURL();
 
   setURLsFromPreferences();
 
