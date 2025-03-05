@@ -33,7 +33,7 @@
 #define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
-#define FIRMWARE_VERSION "0.0.9"
+#define FIRMWARE_VERSION "0.0.10"
 
 char* metadataURL;
 char* metadataHashURL;
@@ -52,7 +52,7 @@ const IPAddress subnetMask(255, 255, 255, 0);
 
 const String localIPURL = "http://4.3.2.1";
 
-DynamicJsonDocument metadataDoc(4096);
+JsonDocument metadataDoc;
 JsonObject jsonMetadata = metadataDoc.to<JsonObject>();
 
 uint8_t frameDataBuffer[SIZE];
@@ -405,7 +405,7 @@ bool loadMetadataFromFile() {
 // check if the local metadata hash matches the server's hash
 bool doesLocalMetadataMatchServer(HTTPClient& http, WiFiClientSecure& client) {
   // Check if the 'hash' key exists in the JSON object
-  if (!jsonMetadata.containsKey("hash") || jsonMetadata["hash"].isNull()) {
+  if (!jsonMetadata["hash"]) {
     Serial.println(F("Hash key not found in local metadata."));
     return false;
   }
@@ -417,7 +417,7 @@ bool doesLocalMetadataMatchServer(HTTPClient& http, WiFiClientSecure& client) {
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK) {
-    DynamicJsonDocument hashResponseDoc(1024);
+    JsonDocument hashResponseDoc;
     deserializeJson(hashResponseDoc, http.getStream());
     bool hashesMatch = hashResponseDoc["hashesMatch"].as<bool>();
     http.end();
