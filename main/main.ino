@@ -1,10 +1,11 @@
-#include <FastLED.h>
-#include <ArduinoJson.h>
+// board manager version 3.3.0
+#include <FastLED.h> // v3.10.1
+#include <ArduinoJson.h> // v7.4.2
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <FS.h>
 #include <SPIFFS.h>
-#include <StreamUtils.h>
+#include <StreamUtils.h> // v1.9.0
 #include <Update.h>
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
@@ -33,7 +34,7 @@
 #define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
-#define FIRMWARE_VERSION "0.0.10"
+#define FIRMWARE_VERSION "0.0.11"
 
 char* metadataURL;
 char* metadataHashURL;
@@ -967,8 +968,8 @@ void setup() {
 
   // Serial.println("Clearing spiffs");
   // SPIFFS.format();
-  //writeTestFile();
-  //listSPIFFSFiles();
+  // writeTestFile();
+  // listSPIFFSFiles();
 
   reconnectWiFi();
   if (WiFi.status() != WL_CONNECTED) {
