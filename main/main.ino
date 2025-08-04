@@ -1,11 +1,11 @@
 // board manager version 3.3.0
-#include <FastLED.h> // v3.10.1
-#include <ArduinoJson.h> // v7.4.2
+#include <FastLED.h>      // v3.10.1
+#include <ArduinoJson.h>  // v7.4.2
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <FS.h>
 #include <SPIFFS.h>
-#include <StreamUtils.h> // v1.9.0
+#include <StreamUtils.h>  // v1.9.0
 #include <Update.h>
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
@@ -579,7 +579,7 @@ void parseAndDisplayFrame() {
       if (bufferIndex >= 0 && bufferIndex + 2 < SIZE) {
         leds[ledIndex] = CRGB(frameDataBuffer[bufferIndex], frameDataBuffer[bufferIndex + 1], frameDataBuffer[bufferIndex + 2]);
       } else {
-        leds[ledIndex] = CRGB::Black; // Safe fallback color
+        leds[ledIndex] = CRGB::Black;  // Safe fallback color
       }
     }
   }
@@ -1034,15 +1034,35 @@ void loop() {
       currentAnimation = jsonMetadata["metadata"].as<JsonArray>()[currentAnimationIndex];
       const char* animationID = currentAnimation["animationID"];
 
+      // Skip animations with invalid parameters
+      int repeatCount = currentAnimation["repeatCount"].as<int>();
+      JsonArray frameOrder = currentAnimation["frameOrder"].as<JsonArray>();
+
+      if (repeatCount <= 0 || frameOrder.size() == 0) {
+        Serial.print(F("Skipping invalid animation: "));
+        Serial.println(animationID);
+        currentAnimationIndex++;
+        return;  // Skip this loop iteration
+      }
+
       Serial.print(F("Displaying Animation: "));
       Serial.println(animationID);
 
       animationLoaded = true;
       currentRepeatCount = 0;
-      previousMillis = millis() - currentAnimation["frameDuration"].as<int>(); // Reset timing for immediate first frame
+
+      // Enforce minimum frame duration to prevent CPU overload
+      int frameDuration = currentAnimation["frameDuration"].as<int>();
+      if (frameDuration < 16) frameDuration = 16;  // Minimum 16ms (~60 FPS)
+
+      previousMillis = millis() - frameDuration;  // Reset timing for immediate first frame
     }
 
-    if (millis() - previousMillis >= currentAnimation["frameDuration"].as<int>()) {
+    // Enforce minimum frame duration in timing check too
+    int frameDuration = currentAnimation["frameDuration"].as<int>();
+    if (frameDuration < 16) frameDuration = 16;
+
+    if (millis() - previousMillis >= frameDuration) {
       // Time to show the next frame
       JsonArray frameOrder = currentAnimation["frameOrder"].as<JsonArray>();
       if (currentFrameIndex < frameOrder.size()) {
@@ -1057,13 +1077,13 @@ void loop() {
       } else {
         // All frames displayed, but need to wait for frame duration before transitioning
         // Check if enough time has passed since the last frame was displayed
-        if (millis() - previousMillis >= currentAnimation["frameDuration"].as<int>()) {
+        if (millis() - previousMillis >= frameDuration) {
           // Check if the animation needs to be repeated
           if (currentRepeatCount < currentAnimation["repeatCount"].as<int>() - 1) {
             // Repeat the animation again
             currentRepeatCount++;
-            currentFrameIndex = 0;  // Reset frame index to restart the animation
-            previousMillis = millis() - currentAnimation["frameDuration"].as<int>(); // Reset timing for immediate repeat
+            currentFrameIndex = 0;                      // Reset frame index to restart the animation
+            previousMillis = millis() - frameDuration;  // Reset timing for immediate repeat
           } else {
             // No more repeats, move to the next animation
             currentFrameIndex = 0;
