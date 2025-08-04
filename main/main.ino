@@ -575,7 +575,12 @@ void parseAndDisplayFrame() {
         bufferIndex = (row * LENGTH + reverseCol) * BYTES_PER_PIXEL;
       }
 
-      leds[ledIndex] = CRGB(frameDataBuffer[bufferIndex], frameDataBuffer[bufferIndex + 1], frameDataBuffer[bufferIndex + 2]);
+      // Bounds checking to prevent memory corruption
+      if (bufferIndex >= 0 && bufferIndex + 2 < SIZE) {
+        leds[ledIndex] = CRGB(frameDataBuffer[bufferIndex], frameDataBuffer[bufferIndex + 1], frameDataBuffer[bufferIndex + 2]);
+      } else {
+        leds[ledIndex] = CRGB::Black; // Safe fallback color
+      }
     }
   }
   FastLED.show();
@@ -1034,6 +1039,7 @@ void loop() {
 
       animationLoaded = true;
       currentRepeatCount = 0;
+      previousMillis = millis() - currentAnimation["frameDuration"].as<int>(); // Reset timing for immediate first frame
     }
 
     if (millis() - previousMillis >= currentAnimation["frameDuration"].as<int>()) {
@@ -1049,17 +1055,22 @@ void loop() {
         previousMillis = millis();  // save the last time a frame was displayed
         currentFrameIndex++;
       } else {
-        // Check if the animation needs to be repeated
-        if (currentRepeatCount < currentAnimation["repeatCount"].as<int>() - 1) {
-          // Repeat the animation again
-          currentRepeatCount++;
-          currentFrameIndex = 0;  // Reset frame index to restart the animation
-        } else {
-          // No more repeats, move to the next animation
-          currentFrameIndex = 0;
-          currentAnimationIndex++;
-          animationLoaded = false;
-          currentRepeatCount = 0;  // Reset repeat count for the next animation
+        // All frames displayed, but need to wait for frame duration before transitioning
+        // Check if enough time has passed since the last frame was displayed
+        if (millis() - previousMillis >= currentAnimation["frameDuration"].as<int>()) {
+          // Check if the animation needs to be repeated
+          if (currentRepeatCount < currentAnimation["repeatCount"].as<int>() - 1) {
+            // Repeat the animation again
+            currentRepeatCount++;
+            currentFrameIndex = 0;  // Reset frame index to restart the animation
+            previousMillis = millis() - currentAnimation["frameDuration"].as<int>(); // Reset timing for immediate repeat
+          } else {
+            // No more repeats, move to the next animation
+            currentFrameIndex = 0;
+            currentAnimationIndex++;
+            animationLoaded = false;
+            currentRepeatCount = 0;  // Reset repeat count for the next animation
+          }
         }
       }
     }
