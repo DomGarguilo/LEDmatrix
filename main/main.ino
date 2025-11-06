@@ -1,11 +1,11 @@
-// board manager version 3.3.0
-#include <FastLED.h>      // v3.10.1
+// board manager version 3.3.2
+#include <FastLED.h>      // v3.10.3
 #include <ArduinoJson.h>  // v7.4.2
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <FS.h>
 #include <SPIFFS.h>
-#include <StreamUtils.h>  // v1.9.0
+#include <StreamUtils.h>  // v1.9.1
 #include <Update.h>
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
@@ -34,7 +34,7 @@
 #define SERVER_ERROR_FILE_NAME SERVER_ERROR_FRAME_ID ".bin"
 #define EMPTY_QUEUE_FILE_NAME EMPTY_QUEUE_FRAME_ID ".bin"
 
-#define FIRMWARE_VERSION "0.0.12"
+#define FIRMWARE_VERSION "0.0.13"
 
 char* metadataURL;
 char* metadataHashURL;
@@ -964,6 +964,7 @@ void setup() {
 
   FastLED.addLeds<CHIPSET, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS);  // Init of the Fastled library
   FastLED.setBrightness(BRIGHTNESS);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, 2000);  // Limit LED power draw to protect supply
   FastLED.clear(true);
 
   if (!SPIFFS.begin(true)) {
